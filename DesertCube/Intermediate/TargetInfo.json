@@ -1,0 +1,14 @@
+{
+	"Targets": [
+		{
+			"Name": "DesertCube",
+			"Path": "..\\Source\\DesertCube.Target.cs",
+			"Type": "Game"
+		},
+		{
+			"Name": "DesertCubeEditor",
+			"Path": "..\\Source\\DesertCubeEditor.Target.cs",
+			"Type": "Editor"
+		}
+	]
+}

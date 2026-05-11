@@ -1,0 +1,14 @@
+{
+    "Version": "1.2",
+    "Data": {
+        "Source": "c:\\users\\ffmag\\documents\\github\\desertcube\\desertcube\\source\\desertcube\\desertcube.cpp",
+        "ProvidedModule": "",
+        "PCH": "c:\\users\\ffmag\\documents\\github\\desertcube\\desertcube\\intermediate\\build\\win64\\x64\\desertcubeeditor\\development\\unrealed\\sharedpch.unrealed.project.valapi.valexpapi.cpp20.h.pch",
+        "Includes": [
+            "c:\\users\\ffmag\\documents\\github\\desertcube\\desertcube\\intermediate\\build\\win64\\x64\\unrealeditor\\development\\desertcube\\definitions.desertcube.h",
+            "c:\\users\\ffmag\\documents\\github\\desertcube\\desertcube\\source\\desertcube\\desertcube.h"
+        ],
+        "ImportedModules": [],
+        "ImportedHeaderUnits": []
+    }
+}
