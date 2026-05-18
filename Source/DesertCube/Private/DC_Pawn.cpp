@@ -1,55 +1,64 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "DC_Pawn.h"
+#include "DC_GameMode.h"
+#include "DC_TrailSegment.h"
 #include "Components/StaticMeshComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 
-
-
 ADC_Pawn::ADC_Pawn()
 {
 	PrimaryActorTick.bCanEverTick = true;
-	
 	bReplicates = true; 
 	SetReplicatingMovement(true);
 	
-	// Mesh de cubo
+	USceneComponent* RootScene = CreateDefaultSubobject<USceneComponent>(TEXT("RootScene"));
+	RootComponent = RootScene;
+
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComponent"));
-	RootComponent = MeshComponent;
+	MeshComponent->SetupAttachment(RootScene);
+	MeshComponent->SetGenerateOverlapEvents(true);
 	
-	// Velocidad inicial
 	MovementSpeed = 800.f;
+	CurrentTargetYaw = 0.f;
+	
+	// Iniciamos vivos
+	bIsDead = false; 
 }
 
 void ADC_Pawn::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	// 1. SINCRONIZAMOS LA BRÚJULA: Leemos hacia dónde mira al nacer en el mapa
+	CurrentTargetYaw = GetActorRotation().Yaw;
+	
+	if (HasAuthority()) 
+	{
+		MeshComponent->OnComponentBeginOverlap.AddDynamic(this, &ADC_Pawn::OnOverlapBegin);
+	}
+	
+	SpawnNewSegment();
 }
 
 void ADC_Pawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	// Calculamos el movimiento hacia adelante basado en la rotación actual
 	FVector ForwardMove = GetActorForwardVector() * MovementSpeed * DeltaTime;
-	
-	// Aplicamos el movimiento. 
-	// Nota: El 'true' activa el Sweep (colisiones). Si el cubo no se mueve después de compilar, 
-	// cambialo a 'false' temporalmente para descartar que esté atascado en el piso.
-	AddActorWorldOffset(ForwardMove, true);
+	AddActorWorldOffset(ForwardMove, false);
+
+	if (HasAuthority() && CurrentSegment)
+	{
+		CurrentSegment->UpdateSegment(LastTurnLocation, GetActorLocation());
+	}
 }
 
 void ADC_Pawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 	
-	// 1. Obtenemos el controlador del jugador
 	if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
 	{
-		// 2. Obtenemos el subsistema local y agregamos el Mapping Context
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
 			if (DefaultMappingContext)
@@ -59,7 +68,6 @@ void ADC_Pawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 		}
 	}
 
-	// 3. Vinculamos las acciones (Esto ya lo teníamos)
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
 		if (MoveAction)
@@ -72,18 +80,87 @@ void ADC_Pawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 void ADC_Pawn::Move(const FInputActionValue& Value)
 {
 	FVector2D MovementVector = Value.Get<FVector2D>();
+	
+	// Filtramos inputs muy bajos para evitar "fantasmas"
+	if (MovementVector.SizeSquared() < 0.1f) return;
 
-	// Verificamos cuál eje tiene mayor magnitud para evitar diagonales
+	float NewYaw = CurrentTargetYaw;
+
 	if (FMath::Abs(MovementVector.X) > FMath::Abs(MovementVector.Y))
 	{
-		// Eje X: Derecha / Izquierda
-		float Yaw = (MovementVector.X > 0) ? 90.f : -90.f;
-		SetActorRotation(FRotator(0.f, Yaw, 0.f));
+		NewYaw = (MovementVector.X > 0) ? 90.f : -90.f; 
 	}
-	else if (FMath::Abs(MovementVector.Y) > FMath::Abs(MovementVector.X))
+	else 
 	{
-		// Eje Y: Arriba / Abajo
-		float Yaw = (MovementVector.Y > 0) ? 0.f : 180.f;
-		SetActorRotation(FRotator(0.f, Yaw, 0.f));
+		NewYaw = (MovementVector.Y > 0) ? 0.f : 180.f;  
 	}
+
+	// 2. TOLERANCIA A DECIMALES: Usamos IsNearlyEqual
+	bool bIsSameDirection = FMath::IsNearlyEqual(CurrentTargetYaw, NewYaw, 1.0f) || 
+							(FMath::IsNearlyEqual(FMath::Abs(CurrentTargetYaw), 180.f, 1.0f) && FMath::IsNearlyEqual(FMath::Abs(NewYaw), 180.f, 1.0f));
+
+	// Regla de Tron: No podés girar 180 grados de golpe
+	float YawDiff = FMath::Abs(CurrentTargetYaw - NewYaw);
+	bool bIsOpposite = FMath::IsNearlyEqual(YawDiff, 180.f, 1.0f) || FMath::IsNearlyEqual(YawDiff, 540.f, 1.0f);
+
+	if (!bIsSameDirection && !bIsOpposite)
+	{
+		CurrentTargetYaw = NewYaw;
+		SetActorRotation(FRotator(0.f, CurrentTargetYaw, 0.f));
+		Server_Turn(CurrentTargetYaw);
+	}
+}
+
+void ADC_Pawn::Server_Turn_Implementation(float NewYaw)
+{
+	SetActorRotation(FRotator(0.f, NewYaw, 0.f));
+	SpawnNewSegment();
+}
+
+void ADC_Pawn::SpawnNewSegment()
+{
+	if (HasAuthority() && TrailClass)
+	{
+		LastTurnLocation = GetActorLocation();
+		
+		// 1. Preparamos el terreno
+		FTransform SpawnTransform(FRotator::ZeroRotator, LastTurnLocation);
+		
+		// 2. SPAWN DIFERIDO: Empieza a crear el actor pero pausa su inicialización física
+		ADC_TrailSegment* NewSegment = GetWorld()->SpawnActorDeferred<ADC_TrailSegment>(TrailClass, SpawnTransform, this);
+		
+		if (NewSegment)
+		{
+			// 3. MAGIA: Guardamos el puntero ANTES de que evalúe colisiones
+			CurrentSegment = NewSegment;
+			
+			// 4. Le decimos a Unreal que termine de armarlo y lance los eventos
+			NewSegment->FinishSpawning(SpawnTransform);
+		}
+	}
+}
+
+void ADC_Pawn::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	// Filtro 1: Si ya morimos en este frame, ignoramos el resto
+	if (bIsDead) return;
+
+	// Filtro 2: Ahora CurrentSegment sí es la pared nueva, así que nos va a perdonar la vida
+	if (OtherActor && OtherActor != this && OtherActor != CurrentSegment)
+	{
+		if (OtherActor->IsA(ADC_TrailSegment::StaticClass()))
+		{
+			bIsDead = true; // Marcamos la muerte para evitar impresiones dobles
+			
+			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("MUERTE: Chocaste con %s"), *OtherActor->GetName()));
+			
+			if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
+			{
+				GM->PlayerDied(GetController());
+			}
+			
+			MovementSpeed = 0.f;
+			MeshComponent->SetHiddenInGame(true);
+		}
+	}	
 }

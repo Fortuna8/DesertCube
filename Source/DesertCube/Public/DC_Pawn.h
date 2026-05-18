@@ -1,5 +1,3 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
@@ -10,6 +8,7 @@
 class UInputMappingContext;
 class UInputAction;
 class UStaticMeshComponent;
+class ADC_TrailSegment;
 
 UCLASS()
 class DESERTCUBE_API ADC_Pawn : public APawn
@@ -22,28 +21,43 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	
-	// Componente visual del jugador
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	UStaticMeshComponent* MeshComponent;
 
-	// Variables del Enhanced Input
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputMappingContext* DefaultMappingContext;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputAction* MoveAction;
 
-	// Velocidad de la moto/cubo
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 	float MovementSpeed;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	bool bIsDead;
+	
+	UPROPERTY(BlueprintReadOnly, Category = "Movement")
+	float CurrentTargetYaw;
 
-	// Función que procesará el input
 	void Move(const FInputActionValue& Value);
+	
+	UPROPERTY(EditDefaultsOnly, Category = "Trail")
+	TSubclassOf<ADC_TrailSegment> TrailClass;
+
+	UPROPERTY()
+	ADC_TrailSegment* CurrentSegment;
+	
+	FVector LastTurnLocation;
+
+	void SpawnNewSegment();
+
+	UFUNCTION(Server, Reliable)
+	void Server_Turn(float NewYaw);
+	
+	UFUNCTION()
+	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 public:	
-	// Called every frame
 	virtual void Tick(float DeltaTime) override;
-
-	// Called to bind functionality to input
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 };
