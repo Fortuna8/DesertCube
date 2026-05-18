@@ -23,6 +23,11 @@ ADC_Pawn::ADC_Pawn()
 	
 	// Iniciamos vivos
 	bIsDead = false; 
+	
+	// Iniciamos con el modo Snake activado y 20 metros de largo
+	bIsTrailFinite = true;
+	MaxTrailLength = 2000.f;
+	
 }
 
 void ADC_Pawn::BeginPlay()
@@ -50,6 +55,50 @@ void ADC_Pawn::Tick(float DeltaTime)
 	if (HasAuthority() && CurrentSegment)
 	{
 		CurrentSegment->UpdateSegment(LastTurnLocation, GetActorLocation());
+
+		// Lógica del modo snake
+		if (bIsTrailFinite && ActiveSegments.Num() > 0)
+		{
+			// 1. Calculamos cuánto mide la estela entera sumando todos los segmentos
+			float TotalLength = 0.f;
+			for (ADC_TrailSegment* Seg : ActiveSegments)
+			{
+				if (Seg) TotalLength += FVector::Distance(Seg->StartLoc, Seg->EndLoc);
+			}
+
+			// 2. Si nos pasamos del límite, empezamos a recortar desde la cola
+			while (TotalLength > MaxTrailLength && ActiveSegments.Num() > 0)
+			{
+				ADC_TrailSegment* OldestSeg = ActiveSegments[0]; // Agarramos el más viejo
+				
+				// Limpieza por seguridad
+				if (!OldestSeg)
+				{
+					ActiveSegments.RemoveAt(0);
+					continue;
+				}
+
+				float Excess = TotalLength - MaxTrailLength;
+				float OldestLen = FVector::Distance(OldestSeg->StartLoc, OldestSeg->EndLoc);
+
+				// Si el exceso es mayor a lo que mide el segmento viejo (y no es el único que nos queda)
+				if (Excess >= OldestLen && ActiveSegments.Num() > 1)
+				{
+					// Destruimos el segmento viejo por completo
+					TotalLength -= OldestLen;
+					OldestSeg->Destroy();
+					ActiveSegments.RemoveAt(0);
+				}
+				else
+				{
+					// Si sobra menos, simplemente achicamos el segmento viejo moviendo su punto de inicio
+					FVector Dir = (OldestSeg->EndLoc - OldestSeg->StartLoc).GetSafeNormal();
+					FVector NewStart = OldestSeg->StartLoc + (Dir * Excess);
+					OldestSeg->UpdateSegment(NewStart, OldestSeg->EndLoc);
+					break; // Ya quedó del tamaño exacto, salimos del loop
+				}
+			}
+		}
 	}
 }
 
@@ -131,10 +180,17 @@ void ADC_Pawn::SpawnNewSegment()
 		
 		if (NewSegment)
 		{
-			// 3. MAGIA: Guardamos el puntero ANTES de que evalúe colisiones
+			// Guardamos el puntero ANTES de que evalúe colisiones
 			CurrentSegment = NewSegment;
 			
-			// 4. Le decimos a Unreal que termine de armarlo y lance los eventos
+			// Inicializamos las coordenadas del segmento
+			NewSegment->StartLoc = LastTurnLocation;
+			NewSegment->EndLoc = LastTurnLocation;
+			
+			// Los agregamos a la lista
+			ActiveSegments.Add(NewSegment);
+			
+			// Le decimos a Unreal que termine de armarlo y lance los eventos
 			NewSegment->FinishSpawning(SpawnTransform);
 		}
 	}

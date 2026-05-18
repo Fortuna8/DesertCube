@@ -28,5 +28,11 @@ protected:
 	UBoxComponent* CollisionBox; 
 
 public:	
+	UPROPERTY(BlueprintReadOnly, Category = "Trail")
+	FVector StartLoc;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Trail")
+	FVector EndLoc;
+	
 	void UpdateSegment(FVector StartLocation, FVector EndLocation);
 };

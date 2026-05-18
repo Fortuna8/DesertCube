@@ -57,6 +57,17 @@ protected:
 	UFUNCTION()
 	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
+	// --- OPCIONES DEL MODO SNAKE ---
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail Settings")
+	bool bIsTrailFinite;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail Settings", meta = (EditCondition = "bIsTrailFinite", ClampMin = "100.0"))
+	float MaxTrailLength;
+
+	// Lista para llevar el registro de todas las paredes vivas
+	UPROPERTY()
+	TArray<ADC_TrailSegment*> ActiveSegments;
+	
 public:	
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;

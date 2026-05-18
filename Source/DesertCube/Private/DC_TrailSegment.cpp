@@ -22,6 +22,10 @@ ADC_TrailSegment::ADC_TrailSegment()
 
 void ADC_TrailSegment::UpdateSegment(FVector StartLocation, FVector EndLocation)
 {
+	// Guardamos las coordenadas internamente
+	StartLoc = StartLocation;
+	EndLoc = EndLocation;
+
 	FVector Direction = (EndLocation - StartLocation).GetSafeNormal();
 	float TotalDistance = FVector::Distance(StartLocation, EndLocation);
 
