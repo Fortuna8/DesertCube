@@ -1,5 +1,6 @@
 #include "DC_Pawn.h"
 #include "DC_GameMode.h"
+#include "DC_GameState.h"
 #include "DC_TrailSegment.h"
 #include "Components/StaticMeshComponent.h"
 #include "EnhancedInputComponent.h"
@@ -56,46 +57,44 @@ void ADC_Pawn::Tick(float DeltaTime)
 	{
 		CurrentSegment->UpdateSegment(LastTurnLocation, GetActorLocation());
 
-		// Lógica del modo snake
-		if (bIsTrailFinite && ActiveSegments.Num() > 0)
+		// Leemos las reglas del réferi a través del GameState
+		if (ADC_GameState* GS = GetWorld()->GetGameState<ADC_GameState>())
 		{
-			// 1. Calculamos cuánto mide la estela entera sumando todos los segmentos
-			float TotalLength = 0.f;
-			for (ADC_TrailSegment* Seg : ActiveSegments)
+			if (GS->bGlobalIsTrailFinite && ActiveSegments.Num() > 0)
 			{
-				if (Seg) TotalLength += FVector::Distance(Seg->StartLoc, Seg->EndLoc);
-			}
-
-			// 2. Si nos pasamos del límite, empezamos a recortar desde la cola
-			while (TotalLength > MaxTrailLength && ActiveSegments.Num() > 0)
-			{
-				ADC_TrailSegment* OldestSeg = ActiveSegments[0]; // Agarramos el más viejo
-				
-				// Limpieza por seguridad
-				if (!OldestSeg)
+				float TotalLength = 0.f;
+				for (ADC_TrailSegment* Seg : ActiveSegments)
 				{
-					ActiveSegments.RemoveAt(0);
-					continue;
+					if (Seg) TotalLength += FVector::Distance(Seg->StartLoc, Seg->EndLoc);
 				}
 
-				float Excess = TotalLength - MaxTrailLength;
-				float OldestLen = FVector::Distance(OldestSeg->StartLoc, OldestSeg->EndLoc);
+				// Reemplazamos MaxTrailLength por GS->GlobalMaxTrailLength
+				while (TotalLength > GS->GlobalMaxTrailLength && ActiveSegments.Num() > 0)
+				{
+					ADC_TrailSegment* OldestSeg = ActiveSegments[0];
+					
+					if (!OldestSeg)
+					{
+						ActiveSegments.RemoveAt(0);
+						continue;
+					}
 
-				// Si el exceso es mayor a lo que mide el segmento viejo (y no es el único que nos queda)
-				if (Excess >= OldestLen && ActiveSegments.Num() > 1)
-				{
-					// Destruimos el segmento viejo por completo
-					TotalLength -= OldestLen;
-					OldestSeg->Destroy();
-					ActiveSegments.RemoveAt(0);
-				}
-				else
-				{
-					// Si sobra menos, simplemente achicamos el segmento viejo moviendo su punto de inicio
-					FVector Dir = (OldestSeg->EndLoc - OldestSeg->StartLoc).GetSafeNormal();
-					FVector NewStart = OldestSeg->StartLoc + (Dir * Excess);
-					OldestSeg->UpdateSegment(NewStart, OldestSeg->EndLoc);
-					break; // Ya quedó del tamaño exacto, salimos del loop
+					float Excess = TotalLength - GS->GlobalMaxTrailLength;
+					float OldestLen = FVector::Distance(OldestSeg->StartLoc, OldestSeg->EndLoc);
+
+					if (Excess >= OldestLen && ActiveSegments.Num() > 1)
+					{
+						TotalLength -= OldestLen;
+						OldestSeg->Destroy();
+						ActiveSegments.RemoveAt(0);
+					}
+					else
+					{
+						FVector Dir = (OldestSeg->EndLoc - OldestSeg->StartLoc).GetSafeNormal();
+						FVector NewStart = OldestSeg->StartLoc + (Dir * Excess);
+						OldestSeg->UpdateSegment(NewStart, OldestSeg->EndLoc);
+						break;
+					}
 				}
 			}
 		}

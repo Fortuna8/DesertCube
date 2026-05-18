@@ -12,7 +12,15 @@ class DESERTCUBE_API ADC_GameMode : public AGameModeBase
 public:
 	ADC_GameMode();
 
-	// Función que llamará el Pawn cuando detecte un choque fatal
 	UFUNCTION(BlueprintCallable, Category = "Game Rules")
 	void PlayerDied(AController* VictimController);
+
+protected:
+	virtual void BeginPlay() override;
+	virtual void OnPostLogin(AController* NewPlayer) override;
+	
+	FTimerHandle RoundTimerHandle;
+
+	void OnOneSecondPassed();
+	void EndRound();
 };
