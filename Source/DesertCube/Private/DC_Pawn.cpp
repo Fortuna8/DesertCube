@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
+#include "Components/BoxComponent.h"
 
 ADC_Pawn::ADC_Pawn()
 {
@@ -12,12 +13,15 @@ ADC_Pawn::ADC_Pawn()
 	bReplicates = true; 
 	SetReplicatingMovement(true);
 	
-	USceneComponent* RootScene = CreateDefaultSubobject<USceneComponent>(TEXT("RootScene"));
-	RootComponent = RootScene;
-
+	CollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBox"));
+	RootComponent = CollisionBox;
+	CollisionBox->SetCollisionProfileName(TEXT("BlockAllDynamic"));
+	CollisionBox->SetGenerateOverlapEvents(true);
+	
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComponent"));
-	MeshComponent->SetupAttachment(RootScene);
-	MeshComponent->SetGenerateOverlapEvents(true);
+	MeshComponent->SetupAttachment(RootComponent);
+	MeshComponent->SetGenerateOverlapEvents(false);
+	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	
 	MovementSpeed = 800.f;
 	CurrentTargetYaw = 0.f;
@@ -28,6 +32,9 @@ ADC_Pawn::ADC_Pawn()
 	// Iniciamos con el modo Snake activado y 20 metros de largo
 	bIsTrailFinite = true;
 	MaxTrailLength = 2000.f;
+	
+	// Iniciamos la muerte por choque en pared activada por defecto
+	bDieOnWallCollision = true;
 	
 }
 
@@ -40,7 +47,7 @@ void ADC_Pawn::BeginPlay()
 	
 	if (HasAuthority()) 
 	{
-		MeshComponent->OnComponentBeginOverlap.AddDynamic(this, &ADC_Pawn::OnOverlapBegin);
+		CollisionBox->OnComponentBeginOverlap.AddDynamic(this, &ADC_Pawn::OnOverlapBegin);
 	}
 	
 	SpawnNewSegment();
@@ -50,9 +57,29 @@ void ADC_Pawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	FHitResult HitResult;
 	FVector ForwardMove = GetActorForwardVector() * MovementSpeed * DeltaTime;
-	AddActorWorldOffset(ForwardMove, false);
+	AddActorWorldOffset(ForwardMove, true, &HitResult);
 
+	// LÓGICA DE MUERTE POR PARED
+	if (HitResult.bBlockingHit && bDieOnWallCollision && !bIsDead)
+	{
+		if (HasAuthority())
+		{
+			bIsDead = true;
+			
+			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("MUERTE: Te estrellaste contra el muro"));
+			
+			if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
+			{
+				GM->PlayerDied(GetController());
+			}
+			
+			MovementSpeed = 0.f;
+			MeshComponent->SetHiddenInGame(true);
+		}
+	}
+	
 	if (HasAuthority() && CurrentSegment)
 	{
 		CurrentSegment->UpdateSegment(LastTurnLocation, GetActorLocation());

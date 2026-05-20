@@ -9,6 +9,7 @@ class UInputMappingContext;
 class UInputAction;
 class UStaticMeshComponent;
 class ADC_TrailSegment;
+class UBoxComponent;
 
 UCLASS()
 class DESERTCUBE_API ADC_Pawn : public APawn
@@ -20,6 +21,9 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UBoxComponent* CollisionBox;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	UStaticMeshComponent* MeshComponent;
@@ -63,6 +67,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail Settings", meta = (EditCondition = "bIsTrailFinite", ClampMin = "100.0"))
 	float MaxTrailLength;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Game Rules")
+	bool bDieOnWallCollision;
 
 	// Lista para llevar el registro de todas las paredes vivas
 	UPROPERTY()
