@@ -17,7 +17,6 @@ public:
 	ADC_TrailSegment();
 
 protected:
-	// Nueva raíz vacía para poder desplazar los otros componentes
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	USceneComponent* RootScene;
 
@@ -28,11 +27,22 @@ protected:
 	UBoxComponent* CollisionBox; 
 
 public:	
-	UPROPERTY(BlueprintReadOnly, Category = "Trail")
+	// Replicamos las coordenadas para que la red nunca pierda la matemática
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Trail")
 	FVector StartLoc;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Trail")
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Trail")
 	FVector EndLoc;
+
+	// --- VARIABLES DE ACTOR AUTÓNOMO ---
+	UPROPERTY(Replicated)
+	bool bIsGrowing;
+
+	UPROPERTY(Replicated)
+	AActor* TargetPawn;
+
+	virtual void Tick(float DeltaTime) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	
 	void UpdateSegment(FVector StartLocation, FVector EndLocation);
 };

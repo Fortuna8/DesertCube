@@ -23,4 +23,8 @@ protected:
 
 	void OnOneSecondPassed();
 	void EndRound();
+	
+	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
+
+	int32 SpawnIndex = 0;
 };

@@ -26,23 +26,16 @@ ADC_Pawn::ADC_Pawn()
 	MovementSpeed = 800.f;
 	CurrentTargetYaw = 0.f;
 	
-	// Iniciamos vivos
 	bIsDead = false; 
-	
-	// Iniciamos con el modo Snake activado y 20 metros de largo
 	bIsTrailFinite = true;
 	MaxTrailLength = 2000.f;
-	
-	// Iniciamos la muerte por choque en pared activada por defecto
 	bDieOnWallCollision = true;
-	
 }
 
 void ADC_Pawn::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	// 1. SINCRONIZAMOS LA BRÚJULA: Leemos hacia dónde mira al nacer en el mapa
 	CurrentTargetYaw = GetActorRotation().Yaw;
 	
 	if (HasAuthority()) 
@@ -61,7 +54,6 @@ void ADC_Pawn::Tick(float DeltaTime)
 	FVector ForwardMove = GetActorForwardVector() * MovementSpeed * DeltaTime;
 	AddActorWorldOffset(ForwardMove, true, &HitResult);
 
-	// LÓGICA DE MUERTE POR PARED
 	if (HitResult.bBlockingHit && bDieOnWallCollision && !bIsDead)
 	{
 		if (HasAuthority())
@@ -80,47 +72,47 @@ void ADC_Pawn::Tick(float DeltaTime)
 		}
 	}
 	
-	if (HasAuthority() && CurrentSegment)
+	// Lógica del árbitro (Snake) - SOLO SERVIDOR
+	if (HasAuthority())
 	{
-		CurrentSegment->UpdateSegment(LastTurnLocation, GetActorLocation());
-
-		// Leemos las reglas del réferi a través del GameState
-		if (ADC_GameState* GS = GetWorld()->GetGameState<ADC_GameState>())
+		if (bIsTrailFinite && ActiveSegments.Num() > 0)
 		{
-			if (GS->bGlobalIsTrailFinite && ActiveSegments.Num() > 0)
+			if (ADC_GameState* GS = GetWorld()->GetGameState<ADC_GameState>())
 			{
-				float TotalLength = 0.f;
-				for (ADC_TrailSegment* Seg : ActiveSegments)
+				if (GS->bGlobalIsTrailFinite && ActiveSegments.Num() > 0)
 				{
-					if (Seg) TotalLength += FVector::Distance(Seg->StartLoc, Seg->EndLoc);
-				}
-
-				// Reemplazamos MaxTrailLength por GS->GlobalMaxTrailLength
-				while (TotalLength > GS->GlobalMaxTrailLength && ActiveSegments.Num() > 0)
-				{
-					ADC_TrailSegment* OldestSeg = ActiveSegments[0];
-					
-					if (!OldestSeg)
+					float TotalLength = 0.f;
+					for (ADC_TrailSegment* Seg : ActiveSegments)
 					{
-						ActiveSegments.RemoveAt(0);
-						continue;
+						if (Seg) TotalLength += FVector::Distance(Seg->StartLoc, Seg->EndLoc);
 					}
 
-					float Excess = TotalLength - GS->GlobalMaxTrailLength;
-					float OldestLen = FVector::Distance(OldestSeg->StartLoc, OldestSeg->EndLoc);
+					while (TotalLength > GS->GlobalMaxTrailLength && ActiveSegments.Num() > 0)
+					{
+						ADC_TrailSegment* OldestSeg = ActiveSegments[0];
+						
+						if (!OldestSeg)
+						{
+							ActiveSegments.RemoveAt(0);
+							continue;
+						}
 
-					if (Excess >= OldestLen && ActiveSegments.Num() > 1)
-					{
-						TotalLength -= OldestLen;
-						OldestSeg->Destroy();
-						ActiveSegments.RemoveAt(0);
-					}
-					else
-					{
-						FVector Dir = (OldestSeg->EndLoc - OldestSeg->StartLoc).GetSafeNormal();
-						FVector NewStart = OldestSeg->StartLoc + (Dir * Excess);
-						OldestSeg->UpdateSegment(NewStart, OldestSeg->EndLoc);
-						break;
+						float Excess = TotalLength - GS->GlobalMaxTrailLength;
+						float OldestLen = FVector::Distance(OldestSeg->StartLoc, OldestSeg->EndLoc);
+
+						if (Excess >= OldestLen && ActiveSegments.Num() > 1)
+						{
+							TotalLength -= OldestLen;
+							OldestSeg->Destroy();
+							ActiveSegments.RemoveAt(0);
+						}
+						else
+						{
+							FVector Dir = (OldestSeg->EndLoc - OldestSeg->StartLoc).GetSafeNormal();
+							FVector NewStart = OldestSeg->StartLoc + (Dir * Excess);
+							OldestSeg->UpdateSegment(NewStart, OldestSeg->EndLoc);
+							break;
+						}
 					}
 				}
 			}
@@ -156,7 +148,6 @@ void ADC_Pawn::Move(const FInputActionValue& Value)
 {
 	FVector2D MovementVector = Value.Get<FVector2D>();
 	
-	// Filtramos inputs muy bajos para evitar "fantasmas"
 	if (MovementVector.SizeSquared() < 0.1f) return;
 
 	float NewYaw = CurrentTargetYaw;
@@ -170,11 +161,9 @@ void ADC_Pawn::Move(const FInputActionValue& Value)
 		NewYaw = (MovementVector.Y > 0) ? 0.f : 180.f;  
 	}
 
-	// 2. TOLERANCIA A DECIMALES: Usamos IsNearlyEqual
 	bool bIsSameDirection = FMath::IsNearlyEqual(CurrentTargetYaw, NewYaw, 1.0f) || 
 							(FMath::IsNearlyEqual(FMath::Abs(CurrentTargetYaw), 180.f, 1.0f) && FMath::IsNearlyEqual(FMath::Abs(NewYaw), 180.f, 1.0f));
 
-	// Regla de Tron: No podés girar 180 grados de golpe
 	float YawDiff = FMath::Abs(CurrentTargetYaw - NewYaw);
 	bool bIsOpposite = FMath::IsNearlyEqual(YawDiff, 180.f, 1.0f) || FMath::IsNearlyEqual(YawDiff, 540.f, 1.0f);
 
@@ -197,26 +186,27 @@ void ADC_Pawn::SpawnNewSegment()
 	if (HasAuthority() && TrailClass)
 	{
 		LastTurnLocation = GetActorLocation();
-		
-		// 1. Preparamos el terreno
 		FTransform SpawnTransform(FRotator::ZeroRotator, LastTurnLocation);
 		
-		// 2. SPAWN DIFERIDO: Empieza a crear el actor pero pausa su inicialización física
 		ADC_TrailSegment* NewSegment = GetWorld()->SpawnActorDeferred<ADC_TrailSegment>(TrailClass, SpawnTransform, this);
 		
 		if (NewSegment)
 		{
-			// Guardamos el puntero ANTES de que evalúe colisiones
+			// Congelamos la pared vieja si existe
+			if (CurrentSegment)
+			{
+				CurrentSegment->bIsGrowing = false;
+			}
+
 			CurrentSegment = NewSegment;
-			
-			// Inicializamos las coordenadas del segmento
 			NewSegment->StartLoc = LastTurnLocation;
 			NewSegment->EndLoc = LastTurnLocation;
 			
-			// Los agregamos a la lista
-			ActiveSegments.Add(NewSegment);
+			// Le asignamos el dueño y activamos el crecimiento local
+			NewSegment->TargetPawn = this;
+			NewSegment->bIsGrowing = true; 
 			
-			// Le decimos a Unreal que termine de armarlo y lance los eventos
+			ActiveSegments.Add(NewSegment);
 			NewSegment->FinishSpawning(SpawnTransform);
 		}
 	}
@@ -224,15 +214,13 @@ void ADC_Pawn::SpawnNewSegment()
 
 void ADC_Pawn::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	// Filtro 1: Si ya morimos en este frame, ignoramos el resto
 	if (bIsDead) return;
 
-	// Filtro 2: Ahora CurrentSegment sí es la pared nueva, así que nos va a perdonar la vida
 	if (OtherActor && OtherActor != this && OtherActor != CurrentSegment)
 	{
 		if (OtherActor->IsA(ADC_TrailSegment::StaticClass()))
 		{
-			bIsDead = true; // Marcamos la muerte para evitar impresiones dobles
+			bIsDead = true; 
 			
 			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("MUERTE: Chocaste con %s"), *OtherActor->GetName()));
 			

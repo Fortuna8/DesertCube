@@ -51,6 +51,7 @@ protected:
 	UPROPERTY()
 	ADC_TrailSegment* CurrentSegment;
 	
+	UPROPERTY()
 	FVector LastTurnLocation;
 
 	void SpawnNewSegment();
@@ -61,7 +62,6 @@ protected:
 	UFUNCTION()
 	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
-	// --- OPCIONES DEL MODO SNAKE ---
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail Settings")
 	bool bIsTrailFinite;
 
@@ -71,7 +71,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Game Rules")
 	bool bDieOnWallCollision;
 
-	// Lista para llevar el registro de todas las paredes vivas
 	UPROPERTY()
 	TArray<ADC_TrailSegment*> ActiveSegments;
 	

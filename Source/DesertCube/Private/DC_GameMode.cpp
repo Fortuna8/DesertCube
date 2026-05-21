@@ -2,6 +2,8 @@
 #include "DC_GameState.h"
 #include "DC_PlayerState.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/PlayerStart.h"
+#include "Kismet/GameplayStatics.h"
 
 ADC_GameMode::ADC_GameMode()
 {
@@ -104,4 +106,30 @@ void ADC_GameMode::EndRound()
 	{
 		GetWorld()->ServerTravel(TEXT("?Restart"));
 	}
+}
+
+AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
+{
+	// 1. Buscamos TODOS los Player Starts que pusiste en el nivel
+	TArray<AActor*> FoundStarts;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), FoundStarts);
+
+	// 2. Si encontramos al menos uno...
+	if (FoundStarts.Num() > 0)
+	{
+		// Usamos el módulo (%) para asegurarnos de que el índice nunca se pase 
+		// de la cantidad de Player Starts que existen (Ej: Si hay 2 starts y el índice es 2, vuelve a 0)
+		int32 StartToUse = SpawnIndex % FoundStarts.Num();
+		
+		// Aumentamos el contador para que el próximo jugador use el siguiente
+		SpawnIndex++;
+		
+		UE_LOG(LogTemp, Warning, TEXT("Asignando el Player Start número: %d"), StartToUse);
+		
+		// Le entregamos este punto de inicio al motor
+		return FoundStarts[StartToUse];
+	}
+
+	// Si por algún motivo olvidaste poner Player Starts en el mapa, que Unreal haga lo suyo
+	return Super::ChoosePlayerStart_Implementation(Player);
 }
