@@ -22,8 +22,30 @@ void ADC_GameMode::BeginPlay()
 		GS->GlobalMaxTrailLength = 2000.f;
 	}
 	
-	// En lugar de iniciar la ronda directamente, iniciamos la cuenta regresiva
-	GetWorldTimerManager().SetTimer(WarmupTimerHandle, this, &ADC_GameMode::OnWarmupTick, 1.0f, true);
+	// ELIMINAR O COMENTAR ESTO:
+	// GetWorldTimerManager().SetTimer(WarmupTimerHandle, this, &ADC_GameMode::OnWarmupTick, 1.0f, true);
+}
+
+void ADC_GameMode::OnPostLogin(AController* NewPlayer)
+{
+	Super::OnPostLogin(NewPlayer);
+
+	if (ADC_GameState* GS = GetGameState<ADC_GameState>())
+	{
+		GS->PlayersAlive = GS->PlayerArray.Num();
+		UE_LOG(LogTemp, Warning, TEXT("Jugador conectado. Total de jugadores en arena: %d"), GS->PlayersAlive);
+
+		// Verificamos si ya tenemos la cantidad mínima de jugadores para arrancar
+		int32 JugadoresNecesariosParaEmpezar = 2; // O 4, dependiendo de tu testeo actual
+
+		if (GS->PlayersAlive >= JugadoresNecesariosParaEmpezar)
+		{
+			// ¡Ahora sí! Como ya llegaron todos, disparamos el calentamiento
+			GetWorldTimerManager().SetTimer(WarmupTimerHandle, this, &ADC_GameMode::OnWarmupTick, 1.0f, true);
+			
+			UE_LOG(LogTemp, Warning, TEXT("¡Todos los jugadores conectados! Iniciando secuencia de 3, 2, 1..."));
+		}
+	}
 }
 
 void ADC_GameMode::OnWarmupTick()
@@ -81,17 +103,6 @@ void ADC_GameMode::OnOneSecondPassed()
 	}
 }
 
-void ADC_GameMode::OnPostLogin(AController* NewPlayer)
-{
-	Super::OnPostLogin(NewPlayer);
-
-	if (ADC_GameState* GS = GetGameState<ADC_GameState>())
-	{
-		GS->PlayersAlive = GS->PlayerArray.Num();
-		UE_LOG(LogTemp, Warning, TEXT("Jugador conectado. Total de jugadores en arena: %d"), GS->PlayersAlive);
-	}
-}
-
 void ADC_GameMode::PlayerDied(AController* VictimController)
 {
 	if (!VictimController) return;
@@ -112,18 +123,13 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 
 			if (GS->PlayersAlive <= 1)
 			{
-				for (APlayerState* PS : GS->PlayerArray)
-				{
-					ADC_PlayerState* SurvivingPS = Cast<ADC_PlayerState>(PS);
-					if (SurvivingPS && SurvivingPS->bIsAlive)
-					{
-						SurvivingPS->RoundsWon++;
-						UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda!"), *SurvivingPS->GetPlayerName());
-						break; 
-					}
-				}
-				
+				// Fuerza el fin de ronda para todos
 				EndRound();
+			}
+			else
+			{
+				// Opcional: Si querés que el muerto sea espectador, acá lo seteas
+				if (VictimController) VictimController->ChangeState(NAME_Spectating);
 			}
 		}
 	}
@@ -131,12 +137,31 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 
 void ADC_GameMode::EndRound()
 {
+	// 1. Frenamos el reloj
 	GetWorldTimerManager().ClearTimer(RoundTimerHandle);
 	
-	if (GetWorld())
+	// 2. Buscamos a TODOS los jugadores conectados y los congelamos
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
-		GetWorld()->ServerTravel(TEXT("?Restart"));
+		APlayerController* PC = It->Get();
+		if (PC && PC->GetPawn())
+		{
+			if (ADC_Pawn* MyPawn = Cast<ADC_Pawn>(PC->GetPawn()))
+			{
+				MyPawn->Multicast_StopRound();
+			}
+		}
 	}
+	
+	// 3. Un delay de 1.0 segundo antes de reiniciar el nivel para todos
+	FTimerHandle UnusedHandle;
+	GetWorldTimerManager().SetTimer(UnusedHandle, [this]()
+	{
+		if (GetWorld())
+		{
+			GetWorld()->ServerTravel(TEXT("?Restart"), true);
+		}
+	}, 1.0f, false);
 }
 
 AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)

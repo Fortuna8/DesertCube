@@ -1,7 +1,5 @@
 #include "DC_TrailLine.h"
 #include "DC_Pawn.h"
-#include "Components/SplineComponent.h"
-#include "Components/SplineMeshComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "DC_GameState.h"
 
@@ -10,10 +8,6 @@ ADC_TrailLine::ADC_TrailLine()
 	PrimaryActorTick.bCanEverTick = true; 
 	bReplicates = true;
 	bAlwaysRelevant = true; 
-
-	SplineComp = CreateDefaultSubobject<USplineComponent>(TEXT("SplineComp"));
-	RootComponent = SplineComp;
-	SplineComp->ClearSplinePoints();
 }
 
 void ADC_TrailLine::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -30,30 +24,24 @@ void ADC_TrailLine::BeginPlay()
 
 void ADC_TrailLine::OnRep_InitialPoint()
 {
-	// Apenas el cliente recibe su punto de nacimiento asegurado, lo anota y arranca
 	TurnCorners.Add(InitialPoint);
 	bIsInitialized = true;
 }
 
 void ADC_TrailLine::Multicast_AddTurnPoint_Implementation(FVector NewPoint)
 {
-	// Cada computadora anota este punto en su propia memoria
 	TurnCorners.Add(NewPoint);
-	
-	// (Opcional) Acá cumplís con el profe instanciando partículas o sonido en el futuro
 }
 
 void ADC_TrailLine::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	// Candado de seguridad de red
 	if (!bIsInitialized || !TargetPawn || TurnCorners.Num() == 0) return;
 
-	// 1. Agregamos temporalmente la cabeza (la posición actual de la moto) a 60 FPS
-	TurnCorners.Add(TargetPawn->GetActorLocation());
+	TurnCorners.Add(TargetPawn->GetActorLocation()); // Cabeza viva
 
-	// 2. Recortamos la cola DE VERDAD (borramos los datos viejos localmente)
+	// Lógica Pura: Recorte de cola sin mallas visuales
 	if (ADC_GameState* GS = GetWorld()->GetGameState<ADC_GameState>())
 	{
 		if (GS->bGlobalIsTrailFinite)
@@ -72,20 +60,10 @@ void ADC_TrailLine::Tick(float DeltaTime)
 				if (Excess >= OldestLength && TurnCorners.Num() > 2)
 				{
 					TotalLength -= OldestLength;
-					
-					// Destruimos la malla física vieja para no acumular basura
-					if (SplineMeshes.Num() > 0 && SplineMeshes[0])
-					{
-						SplineMeshes[0]->DestroyComponent();
-						SplineMeshes.RemoveAt(0);
-					}
-					
-					// Borramos el punto viejo para siempre
-					TurnCorners.RemoveAt(0);
+					TurnCorners.RemoveAt(0); // Borrado de memoria limpia
 				}
 				else
 				{
-					// Deslizamos el punto inicial
 					FVector Dir = (TurnCorners[1] - TurnCorners[0]).GetSafeNormal();
 					TurnCorners[0] += (Dir * Excess);
 					break;
@@ -94,74 +72,40 @@ void ADC_TrailLine::Tick(float DeltaTime)
 		}
 	}
 
-	// 3. Dibujamos la línea matemática afilada
-	UpdateSplineMeshes(TurnCorners);
-
-	// 4. Retiramos la cabeza temporal para que el próximo frame la vuelva a calcular bien
-	TurnCorners.Pop();
+	TurnCorners.Pop(); // Retiramos la cabeza temporal
 }
 
-void ADC_TrailLine::UpdateSplineMeshes(const TArray<FVector>& Points)
+// MAGIA PURA: Colisión Matemática 2D
+bool ADC_TrailLine::CheckMathematicalCollision(FVector MoveStart, FVector MoveEnd, float BikeRadius, AActor* CheckingPawn)
 {
-	if (Points.Num() < 2) return;
-
-	int32 NeededMeshes = Points.Num() - 1;
-
-	// A. Creamos mallas si faltan (ej. al doblar una esquina)
-	while (SplineMeshes.Num() < NeededMeshes)
+	if (!bIsInitialized || TurnCorners.Num() == 0) return false;
+	
+	TArray<FVector> MathPoints = TurnCorners;
+	if (TargetPawn) MathPoints.Add(TargetPawn->GetActorLocation());
+	
+	if (MathPoints.Num() < 2) return false;
+	
+	bool bIsOwnTrail = (CheckingPawn == TargetPawn);
+	
+	for (int32 i = 0; i < MathPoints.Num() - 1; i++)
 	{
-		USplineMeshComponent* NewMesh = NewObject<USplineMeshComponent>(this);
-		NewMesh->SetIsReplicated(false); 
+		// ZONA SEGURA: Ignoramos la cabeza y el cuello de nuestra propia estela
+		if (bIsOwnTrail && i >= MathPoints.Num() - 3) continue;
 		
-		NewMesh->ComponentTags.Add(FName("SafeSegment"));
+		FVector PointA = MathPoints[i];
+		FVector PointB = MathPoints[i+1];
 		
-		NewMesh->SetStaticMesh(TrailMesh);
-		if (TrailMaterial) NewMesh->SetMaterial(0, TrailMaterial);
+		// 1. Verificamos si las líneas se cruzan formando una X o una T
+		FVector Intersection;
+		bool bCrosses = FMath::SegmentIntersection2D(MoveStart, MoveEnd, PointA, PointB, Intersection);
 		
-		NewMesh->SetMobility(EComponentMobility::Movable);
-		NewMesh->CreationMethod = EComponentCreationMethod::Instance;
-		NewMesh->RegisterComponentWithWorld(GetWorld());
-		NewMesh->AttachToComponent(SplineComp, FAttachmentTransformRules::KeepRelativeTransform);
-
-		FVector2D WallThickness(0.2f, 1.0f);
-		NewMesh->SetStartScale(WallThickness);
-		NewMesh->SetEndScale(WallThickness);
+		// 2. Verificamos cercanía para simular el "Grosor" de la pared
+		float DistanceToWall = FMath::PointDistToSegment(MoveEnd, PointA, PointB);
 		
-		NewMesh->SetCollisionProfileName(TEXT("OverlapAllDynamic"));
-		NewMesh->SetGenerateOverlapEvents(true);
-
-		SplineMeshes.Add(NewMesh);
-	}
-
-	// B. Actualizamos la línea matemática
-	SplineComp->ClearSplinePoints();
-	for (int32 i = 0; i < Points.Num(); i++)
-	{
-		SplineComp->AddSplinePoint(Points[i], ESplineCoordinateSpace::World, false);
-		SplineComp->SetSplinePointType(i, ESplinePointType::Linear, true);
-	}
-	SplineComp->UpdateSpline();
-
-	// C. Estiramos las mallas existentes y calculamos 90 grados perfectos
-	for (int32 i = 0; i < SplineMeshes.Num(); i++)
-	{
-		FVector StartPos = SplineComp->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::Local);
-		FVector EndPos = SplineComp->GetLocationAtSplinePoint(i + 1, ESplineCoordinateSpace::Local);
-		FVector Tangent = EndPos - StartPos;
-
-		SplineMeshes[i]->SetStartAndEnd(StartPos, Tangent, EndPos, Tangent);
-
-		// Inmunidad de colisión solo para la cabeza y el cuello
-		if (i >= NeededMeshes - 2) {
-			SplineMeshes[i]->ComponentTags.Add(FName("SafeSegment"));
-		} else {
-			SplineMeshes[i]->ComponentTags.Remove(FName("SafeSegment"));
+		if (bCrosses || DistanceToWall < BikeRadius)
+		{
+			return true; // Impacto confirmado
 		}
 	}
-}
-
-bool ADC_TrailLine::IsSafeSegment(UPrimitiveComponent* Comp)
-{
-	if (Comp && Comp->ComponentHasTag(FName("SafeSegment"))) return true;
 	return false;
 }

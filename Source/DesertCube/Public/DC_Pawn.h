@@ -55,9 +55,9 @@ protected:
 	
 	UFUNCTION(Server, Reliable)
 	void Server_Turn(float NewYaw);
-	
-	UFUNCTION()
-	void OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
+	// Función interna de muerte
+	void Die();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trail Settings")
 	bool bIsTrailFinite;
@@ -69,10 +69,15 @@ protected:
 	bool bDieOnWallCollision;
 
 public:	
-	// Agregamos la orden de arranque garantizada por red
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_StartRound();
+	
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StopRound();
 
+	UFUNCTION(NetMulticast, Reliable) 
+	void Multicast_Die();
+	
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

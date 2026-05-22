@@ -7,6 +7,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "Components/BoxComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "EngineUtils.h" // NECESARIO PARA BUSCAR ACTORES
 
 ADC_Pawn::ADC_Pawn()
 {
@@ -16,15 +17,16 @@ ADC_Pawn::ADC_Pawn()
 	
 	CollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBox"));
 	RootComponent = CollisionBox;
+	
+	// La caja ahora solo se usa para rebotar contra los muros externos del mapa
 	CollisionBox->SetCollisionProfileName(TEXT("BlockAllDynamic"));
-	CollisionBox->SetGenerateOverlapEvents(true);
 	
 	MeshComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("MeshComponent"));
 	MeshComponent->SetupAttachment(RootComponent);
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	
-	// ---> MAGIA: ¡Arrancamos a velocidad cero! <---
+	// Arranca congelado por el Warmup 3,2,1
 	MovementSpeed = 0.f;
 	CurrentTargetYaw = 0.f;
 	bIsDead = false; 
@@ -33,6 +35,8 @@ ADC_Pawn::ADC_Pawn()
 	bDieOnWallCollision = true;
 }
 
+
+// GENERAL
 void ADC_Pawn::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -46,7 +50,6 @@ void ADC_Pawn::BeginPlay()
 	
 	if (HasAuthority()) 
 	{
-		CollisionBox->OnComponentBeginOverlap.AddDynamic(this, &ADC_Pawn::OnOverlapBegin);
 		InitializeTrail();
 	}
 }
@@ -55,23 +58,36 @@ void ADC_Pawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	// SE FUE TODA LA LÓGICA DE LA LÍNEA. Solo nos movemos y chocamos la pared
-	FHitResult HitResult;
-	FVector ForwardMove = GetActorForwardVector() * MovementSpeed * DeltaTime;
-	AddActorWorldOffset(ForwardMove, true, &HitResult);
+	if (bIsDead || MovementSpeed <= 0.f) return;
 
-	if (HitResult.bBlockingHit && bDieOnWallCollision && !bIsDead)
+	FVector OldLocation = GetActorLocation();
+	FVector ForwardMove = GetActorForwardVector() * MovementSpeed * DeltaTime;
+	
+	FHitResult HitResult;
+	// 1. Nos movemos físicamente (Chequeamos choque con paredes del mapa)
+	AddActorWorldOffset(ForwardMove, true, &HitResult);
+	FVector NewLocation = GetActorLocation();
+
+	if (HitResult.bBlockingHit && bDieOnWallCollision && HasAuthority())
 	{
-		if (HasAuthority())
+		Die();
+		return;
+	}
+
+	// 2. ESCÁNER MATEMÁTICO: Chequeamos contra todas las estelas de los jugadores (Solo el Servidor juzga)
+	if (HasAuthority())
+	{
+		// Escaneamos todas las líneas de luz en el nivel
+		for (TActorIterator<ADC_TrailLine> It(GetWorld()); It; ++It)
 		{
-			bIsDead = true;
-			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("MUERTE: Te estrellaste contra el muro"));
-			if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
+			ADC_TrailLine* Line = *It;
+			float BikeRadius = 40.0f; // El grosor de tu moto
+			
+			if (Line->CheckMathematicalCollision(OldLocation, NewLocation, BikeRadius, this))
 			{
-				GM->PlayerDied(GetController());
+				Die();
+				break; 
 			}
-			MovementSpeed = 0.f;
-			MeshComponent->SetHiddenInGame(true);
 		}
 	}
 }
@@ -84,21 +100,18 @@ void ADC_Pawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	{
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
 		{
-			if (DefaultMappingContext)
-			{
-				Subsystem->AddMappingContext(DefaultMappingContext, 0);
-			}
+			if (DefaultMappingContext) Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
 	}
 
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
-		if (MoveAction)
-		{
-			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ADC_Pawn::Move);
-		}
+		if (MoveAction) EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ADC_Pawn::Move);
 	}
 }
+
+
+// MOVIMIENTO
 
 void ADC_Pawn::Move(const FInputActionValue& Value)
 {
@@ -133,12 +146,7 @@ void ADC_Pawn::Move(const FInputActionValue& Value)
 void ADC_Pawn::Server_Turn_Implementation(float NewYaw)
 {
 	SetActorRotation(FRotator(0.f, NewYaw, 0.f));
-	
-	if (MyTrailLine)
-	{
-		// El Servidor lanza el grito, y TODAS las PCs ejecutan el AddTurnPoint localmente
-		MyTrailLine->Multicast_AddTurnPoint(GetActorLocation());
-	}
+	if (MyTrailLine) MyTrailLine->Multicast_AddTurnPoint(GetActorLocation());
 }
 
 void ADC_Pawn::InitializeTrail()
@@ -151,48 +159,59 @@ void ADC_Pawn::InitializeTrail()
 		if (MyTrailLine)
 		{
 			MyTrailLine->TargetPawn = this; 
-			
-			// EL CANDADO: Seteamos la variable garantizada para vencer al lag
 			MyTrailLine->InitialPoint = GetActorLocation(); 
-			
-			// El servidor se auto-inicializa localmente
 			MyTrailLine->TurnCorners.Add(GetActorLocation());
 			MyTrailLine->bIsInitialized = true;
 		}
 	}
 }
 
-void ADC_Pawn::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
-{
-	if (bIsDead) return;
 
-	if (OtherActor && OtherActor != this)
-	{
-		if (OtherActor->IsA(ADC_TrailLine::StaticClass()))
-		{
-			ADC_TrailLine* HitLine = Cast<ADC_TrailLine>(OtherActor);
-			
-			if (HitLine == MyTrailLine)
-			{
-				if (HitLine->IsSafeSegment(OtherComp)) return; 
-			}
-
-			bIsDead = true; 
-			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("MUERTE: Chocaste con %s"), *OtherActor->GetName()));
-			
-			if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
-			{
-				GM->PlayerDied(GetController());
-			}
-			
-			MovementSpeed = 0.f;
-			MeshComponent->SetHiddenInGame(true);
-		}
-	}	
-}
-
+// ESTADOS DE RONDA
 void ADC_Pawn::Multicast_StartRound_Implementation()
 {
-	// Cuando el GameMode grita "GO", todos los jugadores activan su velocidad a la vez
-	MovementSpeed = 100.f;
+	MovementSpeed = 800.f;
+}
+
+void ADC_Pawn::Multicast_StopRound_Implementation()
+{
+	MovementSpeed = 0.f;
+	
+	if (IsLocallyControlled())
+	{
+		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		{
+			DisableInput(PC);
+		}
+	}
+}
+
+void ADC_Pawn::Die()
+{
+	// 1. Le avisamos al Game Mode (Solo el servidor puede hacer esto)
+	if (HasAuthority())
+	{
+		// Buscamos el Game Mode y lo casteamos a nuestra clase
+		if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
+		{
+			// Le pasamos el controlador de esta moto para que lo procese
+			GM->PlayerDied(GetController());
+		}
+	}
+
+	// 2. Ejecutamos el Multicast para los efectos visuales de la muerte
+	Multicast_Die();
+}
+
+void ADC_Pawn::Multicast_Die_Implementation()
+{
+	bIsDead = true;
+	MovementSpeed = 0.f;
+	MeshComponent->SetHiddenInGame(true);
+    
+	// Si yo soy el dueño de este pawn, desactivo los inputs
+	if (IsLocallyControlled())
+	{
+		DisableInput(Cast<APlayerController>(GetController()));
+	}
 }

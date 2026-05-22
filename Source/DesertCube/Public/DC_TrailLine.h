@@ -4,10 +4,6 @@
 #include "GameFramework/Actor.h"
 #include "DC_TrailLine.generated.h"
 
-class USplineComponent;
-class USplineMeshComponent;
-class UStaticMesh;
-class UMaterialInterface;
 class ADC_Pawn;
 
 UCLASS()
@@ -21,20 +17,10 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	USplineComponent* SplineComp;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals")
-	UStaticMesh* TrailMesh;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Visuals")
-	UMaterialInterface* TrailMaterial;
-
 public:	
 	UPROPERTY(Replicated)
 	ADC_Pawn* TargetPawn;
 
-	// El punto garantizado de nacimiento contra el lag
 	UPROPERTY(ReplicatedUsing = OnRep_InitialPoint)
 	FVector InitialPoint;
 
@@ -43,21 +29,17 @@ public:
 
 	bool bIsInitialized = false;
 
-	// La memoria local de cada computadora (NO se replica, ahorra toda la red)
+	// La memoria local de puntos matemáticos
 	UPROPERTY()
 	TArray<FVector> TurnCorners;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void Tick(float DeltaTime) override;
-	bool IsSafeSegment(UPrimitiveComponent* Comp);
 
-	// EL REQUISITO DEL PROFE: RPC Multicast garantizado para sincronizar curvas
+	// El RPC Multicast para sincronizar curvas
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_AddTurnPoint(FVector NewPoint);
 
-private:
-	void UpdateSplineMeshes(const TArray<FVector>& Points);
-
-	UPROPERTY()
-	TArray<USplineMeshComponent*> SplineMeshes;
+	// NUEVO: El Escáner Matemático de Colisión
+	bool CheckMathematicalCollision(FVector MoveStart, FVector MoveEnd, float BikeRadius, AActor* CheckingPawn);
 };
