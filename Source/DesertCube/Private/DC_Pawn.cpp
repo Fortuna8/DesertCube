@@ -1,11 +1,12 @@
 #include "DC_Pawn.h"
 #include "DC_GameMode.h"
 #include "DC_GameState.h"
-#include "DC_TrailSegment.h"
+#include "DC_TrailLine.h"
 #include "Components/StaticMeshComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Components/BoxComponent.h"
+#include "Net/UnrealNetwork.h"
 
 ADC_Pawn::ADC_Pawn()
 {
@@ -23,33 +24,38 @@ ADC_Pawn::ADC_Pawn()
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	
-	MovementSpeed = 800.f;
+	// ---> MAGIA: ¡Arrancamos a velocidad cero! <---
+	MovementSpeed = 0.f;
 	CurrentTargetYaw = 0.f;
-	
 	bIsDead = false; 
 	bIsTrailFinite = true;
 	MaxTrailLength = 2000.f;
 	bDieOnWallCollision = true;
 }
 
+void ADC_Pawn::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(ADC_Pawn, MyTrailLine);
+}
+
 void ADC_Pawn::BeginPlay()
 {
 	Super::BeginPlay();
-	
 	CurrentTargetYaw = GetActorRotation().Yaw;
 	
 	if (HasAuthority()) 
 	{
 		CollisionBox->OnComponentBeginOverlap.AddDynamic(this, &ADC_Pawn::OnOverlapBegin);
+		InitializeTrail();
 	}
-	
-	SpawnNewSegment();
 }
 
 void ADC_Pawn::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// SE FUE TODA LA LÓGICA DE LA LÍNEA. Solo nos movemos y chocamos la pared
 	FHitResult HitResult;
 	FVector ForwardMove = GetActorForwardVector() * MovementSpeed * DeltaTime;
 	AddActorWorldOffset(ForwardMove, true, &HitResult);
@@ -59,63 +65,13 @@ void ADC_Pawn::Tick(float DeltaTime)
 		if (HasAuthority())
 		{
 			bIsDead = true;
-			
 			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("MUERTE: Te estrellaste contra el muro"));
-			
 			if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
 			{
 				GM->PlayerDied(GetController());
 			}
-			
 			MovementSpeed = 0.f;
 			MeshComponent->SetHiddenInGame(true);
-		}
-	}
-	
-	// Lógica del árbitro (Snake) - SOLO SERVIDOR
-	if (HasAuthority())
-	{
-		if (bIsTrailFinite && ActiveSegments.Num() > 0)
-		{
-			if (ADC_GameState* GS = GetWorld()->GetGameState<ADC_GameState>())
-			{
-				if (GS->bGlobalIsTrailFinite && ActiveSegments.Num() > 0)
-				{
-					float TotalLength = 0.f;
-					for (ADC_TrailSegment* Seg : ActiveSegments)
-					{
-						if (Seg) TotalLength += FVector::Distance(Seg->StartLoc, Seg->EndLoc);
-					}
-
-					while (TotalLength > GS->GlobalMaxTrailLength && ActiveSegments.Num() > 0)
-					{
-						ADC_TrailSegment* OldestSeg = ActiveSegments[0];
-						
-						if (!OldestSeg)
-						{
-							ActiveSegments.RemoveAt(0);
-							continue;
-						}
-
-						float Excess = TotalLength - GS->GlobalMaxTrailLength;
-						float OldestLen = FVector::Distance(OldestSeg->StartLoc, OldestSeg->EndLoc);
-
-						if (Excess >= OldestLen && ActiveSegments.Num() > 1)
-						{
-							TotalLength -= OldestLen;
-							OldestSeg->Destroy();
-							ActiveSegments.RemoveAt(0);
-						}
-						else
-						{
-							FVector Dir = (OldestSeg->EndLoc - OldestSeg->StartLoc).GetSafeNormal();
-							FVector NewStart = OldestSeg->StartLoc + (Dir * Excess);
-							OldestSeg->UpdateSegment(NewStart, OldestSeg->EndLoc);
-							break;
-						}
-					}
-				}
-			}
 		}
 	}
 }
@@ -147,7 +103,6 @@ void ADC_Pawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 void ADC_Pawn::Move(const FInputActionValue& Value)
 {
 	FVector2D MovementVector = Value.Get<FVector2D>();
-	
 	if (MovementVector.SizeSquared() < 0.1f) return;
 
 	float NewYaw = CurrentTargetYaw;
@@ -178,36 +133,31 @@ void ADC_Pawn::Move(const FInputActionValue& Value)
 void ADC_Pawn::Server_Turn_Implementation(float NewYaw)
 {
 	SetActorRotation(FRotator(0.f, NewYaw, 0.f));
-	SpawnNewSegment();
+	
+	if (MyTrailLine)
+	{
+		// El Servidor lanza el grito, y TODAS las PCs ejecutan el AddTurnPoint localmente
+		MyTrailLine->Multicast_AddTurnPoint(GetActorLocation());
+	}
 }
 
-void ADC_Pawn::SpawnNewSegment()
+void ADC_Pawn::InitializeTrail()
 {
-	if (HasAuthority() && TrailClass)
+	if (HasAuthority() && TrailLineClass)
 	{
-		LastTurnLocation = GetActorLocation();
-		FTransform SpawnTransform(FRotator::ZeroRotator, LastTurnLocation);
-		
-		ADC_TrailSegment* NewSegment = GetWorld()->SpawnActorDeferred<ADC_TrailSegment>(TrailClass, SpawnTransform, this);
-		
-		if (NewSegment)
-		{
-			// Congelamos la pared vieja si existe
-			if (CurrentSegment)
-			{
-				CurrentSegment->bIsGrowing = false;
-			}
+		FTransform SpawnTransform(FRotator::ZeroRotator, GetActorLocation());
+		MyTrailLine = GetWorld()->SpawnActor<ADC_TrailLine>(TrailLineClass, SpawnTransform);
 
-			CurrentSegment = NewSegment;
-			NewSegment->StartLoc = LastTurnLocation;
-			NewSegment->EndLoc = LastTurnLocation;
+		if (MyTrailLine)
+		{
+			MyTrailLine->TargetPawn = this; 
 			
-			// Le asignamos el dueño y activamos el crecimiento local
-			NewSegment->TargetPawn = this;
-			NewSegment->bIsGrowing = true; 
+			// EL CANDADO: Seteamos la variable garantizada para vencer al lag
+			MyTrailLine->InitialPoint = GetActorLocation(); 
 			
-			ActiveSegments.Add(NewSegment);
-			NewSegment->FinishSpawning(SpawnTransform);
+			// El servidor se auto-inicializa localmente
+			MyTrailLine->TurnCorners.Add(GetActorLocation());
+			MyTrailLine->bIsInitialized = true;
 		}
 	}
 }
@@ -216,12 +166,18 @@ void ADC_Pawn::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* Other
 {
 	if (bIsDead) return;
 
-	if (OtherActor && OtherActor != this && OtherActor != CurrentSegment)
+	if (OtherActor && OtherActor != this)
 	{
-		if (OtherActor->IsA(ADC_TrailSegment::StaticClass()))
+		if (OtherActor->IsA(ADC_TrailLine::StaticClass()))
 		{
-			bIsDead = true; 
+			ADC_TrailLine* HitLine = Cast<ADC_TrailLine>(OtherActor);
 			
+			if (HitLine == MyTrailLine)
+			{
+				if (HitLine->IsSafeSegment(OtherComp)) return; 
+			}
+
+			bIsDead = true; 
 			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, FString::Printf(TEXT("MUERTE: Chocaste con %s"), *OtherActor->GetName()));
 			
 			if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
@@ -233,4 +189,10 @@ void ADC_Pawn::OnOverlapBegin(UPrimitiveComponent* OverlappedComp, AActor* Other
 			MeshComponent->SetHiddenInGame(true);
 		}
 	}	
+}
+
+void ADC_Pawn::Multicast_StartRound_Implementation()
+{
+	// Cuando el GameMode grita "GO", todos los jugadores activan su velocidad a la vez
+	MovementSpeed = 100.f;
 }

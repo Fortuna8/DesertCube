@@ -8,8 +8,8 @@
 class UInputMappingContext;
 class UInputAction;
 class UStaticMeshComponent;
-class ADC_TrailSegment;
 class UBoxComponent;
+class ADC_TrailLine; 
 
 UCLASS()
 class DESERTCUBE_API ADC_Pawn : public APawn
@@ -44,18 +44,15 @@ protected:
 	float CurrentTargetYaw;
 
 	void Move(const FInputActionValue& Value);
-	
+
 	UPROPERTY(EditDefaultsOnly, Category = "Trail")
-	TSubclassOf<ADC_TrailSegment> TrailClass;
+	TSubclassOf<ADC_TrailLine> TrailLineClass;
 
-	UPROPERTY()
-	ADC_TrailSegment* CurrentSegment;
+	UPROPERTY(Replicated)
+	ADC_TrailLine* MyTrailLine; 
+
+	void InitializeTrail();
 	
-	UPROPERTY()
-	FVector LastTurnLocation;
-
-	void SpawnNewSegment();
-
 	UFUNCTION(Server, Reliable)
 	void Server_Turn(float NewYaw);
 	
@@ -71,10 +68,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Game Rules")
 	bool bDieOnWallCollision;
 
-	UPROPERTY()
-	TArray<ADC_TrailSegment*> ActiveSegments;
-	
 public:	
+	// Agregamos la orden de arranque garantizada por red
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StartRound();
+
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };

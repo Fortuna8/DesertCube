@@ -19,11 +19,17 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void OnPostLogin(AController* NewPlayer) override;
 	
+	// --- VARIABLES DE LA RONDA ---
 	FTimerHandle RoundTimerHandle;
-
 	void OnOneSecondPassed();
 	void EndRound();
 	
+	// --- NUEVO: SISTEMA DE CALENTAMIENTO ---
+	FTimerHandle WarmupTimerHandle;
+	int32 WarmupTime = 3;
+	void OnWarmupTick();
+	void StartMatch();
+
 	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 
 	int32 SpawnIndex = 0;
