@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Pawn.h"
 #include "InputActionValue.h"
+#include "NiagaraComponent.h"
 #include "DC_Pawn.generated.h"
 
 class UInputMappingContext;
@@ -28,6 +29,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	UStaticMeshComponent* MeshComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UNiagaraComponent* TrailNiagaraComponent;
+	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	UInputMappingContext* DefaultMappingContext;
 
@@ -69,6 +73,20 @@ public:
 	
 	UPROPERTY(BlueprintReadOnly, Category = "State")
 	bool bIsDead;
+	
+	// 2. La variable de color que viaja por la red
+	UPROPERTY(ReplicatedUsing = OnRep_PlayerColorIndex, BlueprintReadOnly, Category = "Identity")
+	int32 PlayerColorIndex;
+	
+	// 3. La función que se dispara en los Clientes cuando reciben el color
+	UFUNCTION()
+	void OnRep_PlayerColorIndex();
+	
+	// 4. Se ejecuta en el Servidor cuando la moto es asignada a un jugador
+	virtual void PossessedBy(AController* NewController) override;
+
+	// 5. Función auxiliar para inyectar el color en Niagara
+	void UpdateTrailColor();
 	
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_StartRound();

@@ -8,6 +8,7 @@
 #include "Components/BoxComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "EngineUtils.h" // NECESARIO PARA BUSCAR ACTORES
+#include "NiagaraComponent.h"
 #include "GameFramework/PlayerState.h"
 
 
@@ -28,6 +29,7 @@ ADC_Pawn::ADC_Pawn()
 	MeshComponent->SetGenerateOverlapEvents(false);
 	MeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	
+	
 	// Arranca congelado por el Warmup 3,2,1
 	MovementSpeed = 0.f;
 	CurrentTargetYaw = 0.f;
@@ -35,6 +37,11 @@ ADC_Pawn::ADC_Pawn()
 	bIsTrailFinite = true;
 	MaxTrailLength = 2000.f;
 	bDieOnWallCollision = true;
+	
+	TrailNiagaraComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("TrailNiagaraComponent"));
+	TrailNiagaraComponent->SetupAttachment(RootComponent);
+	TrailNiagaraComponent->SetAutoActivate(false); // Arranca apagado hasta que sepamos el color
+	PlayerColorIndex = -1; // Valor por defecto
 }
 
 
@@ -43,6 +50,8 @@ void ADC_Pawn::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetime
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(ADC_Pawn, MyTrailLine);
+	
+	DOREPLIFETIME(ADC_Pawn, PlayerColorIndex);
 }
 
 void ADC_Pawn::BeginPlay()
@@ -110,6 +119,53 @@ void ADC_Pawn::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 	{
 		if (MoveAction) EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ADC_Pawn::Move);
 	}
+}
+
+void ADC_Pawn::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// El Servidor se auto-asigna el índice basado en la lista del GameState
+	if (ADC_GameState* GS = GetWorld()->GetGameState<ADC_GameState>())
+	{
+		if (APlayerState* MyPS = GetPlayerState())
+		{
+			int32 Index = GS->PlayerArray.IndexOfByKey(MyPS);
+			if (Index != INDEX_NONE)
+			{
+				PlayerColorIndex = Index;
+				UpdateTrailColor(); // El Servidor actualiza su propia pantalla
+			}
+		}
+	}
+}
+
+// 4. El Cliente recibe el dato por red y se actualiza:
+void ADC_Pawn::OnRep_PlayerColorIndex()
+{
+	UpdateTrailColor();
+}
+
+// 5. El núcleo visual: Traduce el número a un color de Niagara
+void ADC_Pawn::UpdateTrailColor()
+{
+	if (!TrailNiagaraComponent) return;
+
+	FLinearColor NewColor = FLinearColor::White;
+	
+	switch (PlayerColorIndex)
+	{
+	case 0: NewColor = FLinearColor::Blue; break;
+	case 1: NewColor = FLinearColor::Red; break;
+	case 2: NewColor = FLinearColor::Green; break;
+	case 3: NewColor = FLinearColor::Yellow; break;
+	}
+
+	// Inyectamos el color directamente en la memoria de Niagara usando tu variable de usuario
+	TrailNiagaraComponent->SetVariableLinearColor(FName("User.ColorEstela"), NewColor);
+	
+	// Prendemos la estela ahora que ya tiene su color oficial
+	TrailNiagaraComponent->Activate(true); 
 }
 
 
