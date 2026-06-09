@@ -1,7 +1,8 @@
 #include "DC_GameMode.h"
 #include "DC_GameState.h"
 #include "DC_PlayerState.h"
-#include "DC_Pawn.h" // ¡IMPORTANTE PARA HABLARLE A LAS MOTOS!
+#include "DC_Pawn.h"
+#include "DC_GameInstance.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerStart.h"
 #include "Kismet/GameplayStatics.h"
@@ -30,6 +31,15 @@ void ADC_GameMode::OnPostLogin(AController* NewPlayer)
 {
 	Super::OnPostLogin(NewPlayer);
 
+	if (ADC_PlayerState* PS = NewPlayer->GetPlayerState<ADC_PlayerState>())
+	{
+		if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
+		{
+			// El GameMode le inyecta a la red los puntos que sobrevivieron al reinicio
+			PS->RoundsWon = GI->GetWins(PS->GetPlayerName());
+		}
+	}
+	
 	if (ADC_GameState* GS = GetGameState<ADC_GameState>())
 	{
 		GS->PlayersAlive = GS->PlayerArray.Num();
@@ -136,12 +146,28 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 						{
 							if (ADC_PlayerState* WinnerPS = PC->GetPlayerState<ADC_PlayerState>())
 							{
-								WinnerPS->RoundsWon++;
-								UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda legítimamente!"), *WinnerPS->GetPlayerName());
+								// --- 2. GUARDAR PUNTAJE EN EL GAME INSTANCE ---
+								if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
+								{
+									// Le decimos al GameInstance que anote una victoria física
+									GI->AddWin(WinnerPS->GetPlayerName());
+			
+									// Actualizamos el PlayerState para que la UI se entere instantáneamente
+									WinnerPS->RoundsWon = GI->GetWins(WinnerPS->GetPlayerName());
+			
+									UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda! Victorias totales: %d"), *WinnerPS->GetPlayerName(), WinnerPS->RoundsWon);
+
+									// Condición de Victoria Definitiva del Torneo
+									if (WinnerPS->RoundsWon >= 3)
+									{
+										UE_LOG(LogTemp, Warning, TEXT("¡%s ES EL CAMPEÓN DEL TORNEO!"), *WinnerPS->GetPlayerName());
+				
+										// Limpiamos la memoria para que el próximo "Restart" sea una partida desde cero
+										GI->ResetTournament(); 
+									}
+								}
 							}
 
-							// --- CAMBIAMOS ESTA LÍNEA ---
-							// En lugar de Client_OnWin, disparamos el Multicast
 							TempPawn->Multicast_OnWin(); 
 							break;
 						}
