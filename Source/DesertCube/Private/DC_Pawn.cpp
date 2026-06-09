@@ -8,6 +8,8 @@
 #include "Components/BoxComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "EngineUtils.h" // NECESARIO PARA BUSCAR ACTORES
+#include "GameFramework/PlayerState.h"
+
 
 ADC_Pawn::ADC_Pawn()
 {
@@ -188,30 +190,61 @@ void ADC_Pawn::Multicast_StopRound_Implementation()
 
 void ADC_Pawn::Die()
 {
-	// 1. Le avisamos al Game Mode (Solo el servidor puede hacer esto)
 	if (HasAuthority())
 	{
-		// Buscamos el Game Mode y lo casteamos a nuestra clase
-		if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
+		FString VictimName = TEXT("Un jugador");
+		
+		// Buscamos el nombre real del jugador desde el PlayerState antes de mandar el paquete
+		if (GetPlayerState())
 		{
-			// Le pasamos el controlador de esta moto para que lo procese
-			GM->PlayerDied(GetController());
+			VictimName = GetPlayerState()->GetPlayerName();
 		}
-	}
+		else if (GetController() && GetController()->GetPlayerState<APlayerState>())
+		{
+			VictimName = GetController()->GetPlayerState<APlayerState>()->GetPlayerName();
+		}
 
-	// 2. Ejecutamos el Multicast para los efectos visuales de la muerte
-	Multicast_Die();
+		Multicast_Die(VictimName);
+	}
 }
 
-void ADC_Pawn::Multicast_Die_Implementation()
+void ADC_Pawn::Multicast_Die_Implementation(const FString& VictimName)
 {
 	bIsDead = true;
 	MovementSpeed = 0.f;
 	MeshComponent->SetHiddenInGame(true);
-    
-	// Si yo soy el dueño de este pawn, desactivo los inputs
+
+	// DISCRIMINACIÓN DE UI SEGÚN RED
 	if (IsLocallyControlled())
 	{
-		DisableInput(Cast<APlayerController>(GetController()));
+		// Si esta moto era mía... ¡PERDÍ!
+		APlayerController* PC = Cast<APlayerController>(GetController());
+		if (PC) DisableInput(PC);
+
+		// Disparamos el evento de Blueprint para mostrar "Derrota"
+		OnReceiveLoseUI();
 	}
+	else
+	{
+		// Si la moto era de otro... ¡Aviso a mi pantalla que alguien cayó!
+		// Esto se ejecuta en los rivales vivos
+		OnReceiveOtherPlayerNoticeUI(VictimName);
+	}
+
+	// El Servidor procesa la baja en las reglas del GameMode
+	if (HasAuthority())
+	{
+		if (ADC_GameMode* GM = Cast<ADC_GameMode>(GetWorld()->GetAuthGameMode()))
+		{
+			GM->PlayerDied(GetController());
+		}
+	}
+}
+
+void ADC_Pawn::Client_OnWin_Implementation()
+{
+	MovementSpeed = 0.f;
+	
+	// Disparamos el evento de Blueprint para mostrar "¡Victoria!"
+	OnReceiveWinUI();
 }

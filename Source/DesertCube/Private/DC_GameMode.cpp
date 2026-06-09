@@ -113,7 +113,6 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 	if (VictimPS && VictimPS->bIsAlive)
 	{
 		VictimPS->bIsAlive = false;
-		
 		UE_LOG(LogTemp, Warning, TEXT("El jugador %s ha chocado y perdido."), *VictimPS->GetPlayerName());
 
 		if (GS)
@@ -123,13 +122,34 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 
 			if (GS->PlayersAlive <= 1)
 			{
-				// Fuerza el fin de ronda para todos
+				for (APlayerState* PS : GS->PlayerArray)
+				{
+					ADC_PlayerState* SurvivingPS = Cast<ADC_PlayerState>(PS);
+					if (SurvivingPS && SurvivingPS->bIsAlive)
+					{
+						SurvivingPS->RoundsWon++;
+						UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda!"), *SurvivingPS->GetPlayerName());
+						
+						// --- ACÁ CONECTAMOS TU LÓGICA DE VICTORIA ---
+						// Buscamos cuál de los controles conectados tiene este PlayerState ganador
+						for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+						{
+							APlayerController* PC = It->Get();
+							if (PC && PC->GetPlayerState<ADC_PlayerState>() == SurvivingPS)
+							{
+								if (ADC_Pawn* WinnerPawn = Cast<ADC_Pawn>(PC->GetPawn()))
+								{
+									// Le enviamos el RPC privado al cliente ganador
+									WinnerPawn->Client_OnWin();
+								}
+								break;
+							}
+						}
+						break; 
+					}
+				}
+				
 				EndRound();
-			}
-			else
-			{
-				// Opcional: Si querés que el muerto sea espectador, acá lo seteas
-				if (VictimController) VictimController->ChangeState(NAME_Spectating);
 			}
 		}
 	}
@@ -137,23 +157,9 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 
 void ADC_GameMode::EndRound()
 {
-	// 1. Frenamos el reloj
 	GetWorldTimerManager().ClearTimer(RoundTimerHandle);
 	
-	// 2. Buscamos a TODOS los jugadores conectados y los congelamos
-	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
-	{
-		APlayerController* PC = It->Get();
-		if (PC && PC->GetPawn())
-		{
-			if (ADC_Pawn* MyPawn = Cast<ADC_Pawn>(PC->GetPawn()))
-			{
-				MyPawn->Multicast_StopRound();
-			}
-		}
-	}
-	
-	// 3. Un delay de 1.0 segundo antes de reiniciar el nivel para todos
+	// Le damos 3 segundos de gracia al juego para que no se corte el cartel de victoria/derrota instantáneamente
 	FTimerHandle UnusedHandle;
 	GetWorldTimerManager().SetTimer(UnusedHandle, [this]()
 	{
@@ -161,7 +167,7 @@ void ADC_GameMode::EndRound()
 		{
 			GetWorld()->ServerTravel(TEXT("?Restart"), true);
 		}
-	}, 1.0f, false);
+	}, 3.0f, false);
 }
 
 AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
@@ -180,3 +186,4 @@ AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
 
 	return Super::ChoosePlayerStart_Implementation(Player);
 }
+

@@ -75,8 +75,20 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_StopRound();
 
-	UFUNCTION(NetMulticast, Reliable) 
-	void Multicast_Die();
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_Die(const FString& VictimName);
+
+	UFUNCTION(Client, Reliable)
+	void Client_OnWin();
+	
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void OnReceiveWinUI();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void OnReceiveLoseUI();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void OnReceiveOtherPlayerNoticeUI(const FString& OtherPlayerName);
 	
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
