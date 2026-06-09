@@ -241,10 +241,18 @@ void ADC_Pawn::Multicast_Die_Implementation(const FString& VictimName)
 	}
 }
 
-void ADC_Pawn::Client_OnWin_Implementation()
+void ADC_Pawn::Multicast_OnWin_Implementation()
 {
-	MovementSpeed = 0.f;
-	
-	// Disparamos el evento de Blueprint para mostrar "¡Victoria!"
-	OnReceiveWinUI();
+	// --- EL FIX SUPREMO ---
+	// Se ejecuta en el Servidor y en TODOS los clientes a la vez.
+	// Al poner la velocidad en cero en el servidor, el "Tick" deja de avanzar
+	// y la moto se congela de forma autoritativa. ¡Chau fantasma!
+	MovementSpeed = 0.f; 
+
+	// Evaluamos de forma local en cada pantalla.
+	// Solo la pantalla del dueño legítimo de esta moto va a dibujar las letras de Victoria.
+	if (IsLocallyControlled())
+	{
+		OnReceiveWinUI();
+	}
 }

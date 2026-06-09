@@ -122,30 +122,29 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 
 			if (GS->PlayersAlive <= 1)
 			{
-				for (APlayerState* PS : GS->PlayerArray)
+				// --- NUEVA LÓGICA DE DETECCIÓN INFACOBLE ---
+				// Buscamos directamente en el mapa qué moto quedó en pie y con bIsDead en falso
+				for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 				{
-					ADC_PlayerState* SurvivingPS = Cast<ADC_PlayerState>(PS);
-					if (SurvivingPS && SurvivingPS->bIsAlive)
+					APlayerController* PC = It->Get();
+					if (PC && PC->GetPawn())
 					{
-						SurvivingPS->RoundsWon++;
-						UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda!"), *SurvivingPS->GetPlayerName());
+						ADC_Pawn* TempPawn = Cast<ADC_Pawn>(PC->GetPawn());
 						
-						// --- ACÁ CONECTAMOS TU LÓGICA DE VICTORIA ---
-						// Buscamos cuál de los controles conectados tiene este PlayerState ganador
-						for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+						// Si encontramos la moto que sigue viva... ¡Este es el ganador legítimo!
+						if (TempPawn && !TempPawn->bIsDead)
 						{
-							APlayerController* PC = It->Get();
-							if (PC && PC->GetPlayerState<ADC_PlayerState>() == SurvivingPS)
+							if (ADC_PlayerState* WinnerPS = PC->GetPlayerState<ADC_PlayerState>())
 							{
-								if (ADC_Pawn* WinnerPawn = Cast<ADC_Pawn>(PC->GetPawn()))
-								{
-									// Le enviamos el RPC privado al cliente ganador
-									WinnerPawn->Client_OnWin();
-								}
-								break;
+								WinnerPS->RoundsWon++;
+								UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda legítimamente!"), *WinnerPS->GetPlayerName());
 							}
+
+							// --- CAMBIAMOS ESTA LÍNEA ---
+							// En lugar de Client_OnWin, disparamos el Multicast
+							TempPawn->Multicast_OnWin(); 
+							break;
 						}
-						break; 
 					}
 				}
 				
@@ -172,18 +171,32 @@ void ADC_GameMode::EndRound()
 
 AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
 {
+	// 1. Buscamos TODOS los Player Starts del mapa
 	TArray<AActor*> FoundStarts;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), FoundStarts);
 
-	if (FoundStarts.Num() > 0)
+	// 2. Calculamos el Tag que deberíamos buscar para este jugador actual.
+	// Como SpawnIndex arranca en 0, para el primer jugador buscará "P1", para el segundo "P2", etc.
+	FName TargetTag = *FString::Printf(TEXT("P%d"), SpawnIndex + 1);
+
+	// 3. Recorremos la lista buscando el actor que tenga la etiqueta correcta
+	for (AActor* Actor : FoundStarts)
 	{
-		int32 StartToUse = SpawnIndex % FoundStarts.Num();
-		SpawnIndex++;
-		
-		UE_LOG(LogTemp, Warning, TEXT("Asignando el Player Start número: %d"), StartToUse);
-		return FoundStarts[StartToUse];
+		APlayerStart* Start = Cast<APlayerStart>(Actor);
+		if (Start && Start->PlayerStartTag == TargetTag)
+		{
+			// Incrementamos el contador para que el próximo jugador busque el siguiente número
+			SpawnIndex++;
+			
+			UE_LOG(LogTemp, Warning, TEXT("Asignando correctamente el Player Start con Tag legítimo: %s"), *TargetTag.ToString());
+			return Start;
+		}
 	}
 
+	// --- CAMINO DE SEGURIDAD (Fallback) ---
+	// Si por algún error de tipeo en el editor el código no encuentra el tag "P1", "P2", etc.,
+	// ejecutamos la lógica nativa para que el juego no se rompa ni crashee.
+	UE_LOG(LogTemp, Error, TEXT("¡Cuidado! No se encontró un Player Start con el Tag: %s. Usando posición por defecto."), *TargetTag.ToString());
 	return Super::ChoosePlayerStart_Implementation(Player);
 }
 

@@ -37,9 +37,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 	float MovementSpeed;
 	
-	UPROPERTY(BlueprintReadOnly, Category = "State")
-	bool bIsDead;
-	
 	UPROPERTY(BlueprintReadOnly, Category = "Movement")
 	float CurrentTargetYaw;
 
@@ -69,6 +66,10 @@ protected:
 	bool bDieOnWallCollision;
 
 public:	
+	
+	UPROPERTY(BlueprintReadOnly, Category = "State")
+	bool bIsDead;
+	
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_StartRound();
 	
@@ -78,8 +79,8 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_Die(const FString& VictimName);
 
-	UFUNCTION(Client, Reliable)
-	void Client_OnWin();
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_OnWin(); // <--- Cambiamos Client por NetMulticast
 	
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void OnReceiveWinUI();
