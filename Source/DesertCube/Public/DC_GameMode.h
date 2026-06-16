@@ -33,4 +33,7 @@ protected:
 	virtual AActor* ChoosePlayerStart_Implementation(AController* Player) override;
 
 	int32 SpawnIndex = 0;
+	
+	bool bIsMatchOver = false;
+	int32 TargetWins = 3;
 };

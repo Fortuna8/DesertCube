@@ -112,4 +112,10 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_MatchOver();
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void OnReceiveScoreboardUI();
 };

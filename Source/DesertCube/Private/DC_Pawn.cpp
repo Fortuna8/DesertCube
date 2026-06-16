@@ -312,3 +312,15 @@ void ADC_Pawn::Multicast_OnWin_Implementation()
 		OnReceiveWinUI();
 	}
 }
+
+void ADC_Pawn::Multicast_MatchOver_Implementation()
+{
+	// Frenamos la moto por si acaso
+	MovementSpeed = 0.f;
+
+	// Solo la pantalla de este jugador dibuja el Widget
+	if (IsLocallyControlled())
+	{
+		OnReceiveScoreboardUI();
+	}
+}

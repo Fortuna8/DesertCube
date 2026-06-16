@@ -31,17 +31,34 @@ void ADC_GameMode::OnPostLogin(AController* NewPlayer)
 {
 	Super::OnPostLogin(NewPlayer);
 
-	if (ADC_PlayerState* PS = NewPlayer->GetPlayerState<ADC_PlayerState>())
-	{
-		if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
-		{
-			// El GameMode le inyecta a la red los puntos que sobrevivieron al reinicio
-			PS->RoundsWon = GI->GetWins(PS->GetPlayerName());
-		}
-	}
-	
+	// Englobamos todo en este chequeo maestro para que 'GS' exista para todo el código
 	if (ADC_GameState* GS = GetGameState<ADC_GameState>())
 	{
+		if (ADC_PlayerState* PS = NewPlayer->GetPlayerState<ADC_PlayerState>())
+		{
+			// 1. OBTENEMOS EL ÍNDICE EXACTO (0, 1, 2 o 3) usando GS
+			int32 Index = GS->PlayerArray.IndexOfByKey(PS);
+				
+			// 2. LE ASIGNAMOS EL NOMBRE SEGÚN SU COLOR
+			FString NombreColor = TEXT("Player Blanco");
+			switch (Index)
+			{
+			case 0: NombreColor = TEXT("Player Azul"); break;
+			case 1: NombreColor = TEXT("Player Rojo"); break;
+			case 2: NombreColor = TEXT("Player Verde"); break;
+			case 3: NombreColor = TEXT("Player Amarillo"); break;
+			}
+				
+			PS->SetPlayerName(NombreColor);
+
+			// 3. RECUPERAMOS EL PUNTAJE DEL GAME INSTANCE CON SU NUEVO NOMBRE
+			if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
+			{
+				PS->RoundsWon = GI->GetWins(PS->GetPlayerName());
+			}
+		}
+		
+		// 4. LÓGICA DE JUGADORES CONECTADOS (Sigue usando el mismo GS)
 		GS->PlayersAlive = GS->PlayerArray.Num();
 		UE_LOG(LogTemp, Warning, TEXT("Jugador conectado. Total de jugadores en arena: %d"), GS->PlayersAlive);
 
@@ -141,29 +158,26 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 					{
 						ADC_Pawn* TempPawn = Cast<ADC_Pawn>(PC->GetPawn());
 						
-						// Si encontramos la moto que sigue viva... ¡Este es el ganador legítimo!
 						if (TempPawn && !TempPawn->bIsDead)
 						{
 							if (ADC_PlayerState* WinnerPS = PC->GetPlayerState<ADC_PlayerState>())
 							{
-								// --- 2. GUARDAR PUNTAJE EN EL GAME INSTANCE ---
+								// 1. Guardamos la victoria
 								if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
 								{
-									// Le decimos al GameInstance que anote una victoria física
 									GI->AddWin(WinnerPS->GetPlayerName());
-			
-									// Actualizamos el PlayerState para que la UI se entere instantáneamente
 									WinnerPS->RoundsWon = GI->GetWins(WinnerPS->GetPlayerName());
 			
-									UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda! Victorias totales: %d"), *WinnerPS->GetPlayerName(), WinnerPS->RoundsWon);
+									UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda! Victorias: %d"), *WinnerPS->GetPlayerName(), WinnerPS->RoundsWon);
 
-									// Condición de Victoria Definitiva del Torneo
-									if (WinnerPS->RoundsWon >= 3)
+									// 2. ¿Alcanzó las 3 victorias?
+									if (WinnerPS->RoundsWon >= TargetWins)
 									{
+										bIsMatchOver = true; // ¡Se acabó el torneo!
 										UE_LOG(LogTemp, Warning, TEXT("¡%s ES EL CAMPEÓN DEL TORNEO!"), *WinnerPS->GetPlayerName());
 				
-										// Limpiamos la memoria para que el próximo "Restart" sea una partida desde cero
-										GI->ResetTournament(); 
+										// Limpiamos la memoria para la próxima partida
+										GI->ResetTournament();
 									}
 								}
 							}
@@ -184,15 +198,41 @@ void ADC_GameMode::EndRound()
 {
 	GetWorldTimerManager().ClearTimer(RoundTimerHandle);
 	
-	// Le damos 3 segundos de gracia al juego para que no se corte el cartel de victoria/derrota instantáneamente
+	// Por defecto esperamos 3 segundos (si es una ronda normal)
+	float WaitTime = 3.0f;
+
+	// Si el torneo terminó, cambiamos las reglas de espera y avisamos a las interfaces
+	if (bIsMatchOver)
+	{
+		WaitTime = 8.0f; // 8 segundos de gracia para leer el tablero de puntajes
+		
+		for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+		{
+			if (APlayerController* PC = It->Get())
+			{
+				if (ADC_Pawn* MyPawn = Cast<ADC_Pawn>(PC->GetPawn()))
+				{
+					MyPawn->Multicast_MatchOver();
+				}
+			}
+		}
+	}
+
 	FTimerHandle UnusedHandle;
 	GetWorldTimerManager().SetTimer(UnusedHandle, [this]()
 	{
 		if (GetWorld())
 		{
-			GetWorld()->ServerTravel(TEXT("?Restart"), true);
+			if (bIsMatchOver)
+			{
+				GetWorld()->ServerTravel(TEXT("Lobby")); 
+			}
+			else
+			{
+				GetWorld()->ServerTravel(TEXT("Basic")); 
+			}
 		}
-	}, 3.0f, false);
+	}, WaitTime, false); // <--- Usamos la variable WaitTime
 }
 
 AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
