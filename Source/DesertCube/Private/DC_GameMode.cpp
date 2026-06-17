@@ -147,48 +147,20 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 			GS->PlayersAlive = FMath::Max(0, GS->PlayersAlive - 1);
 			UE_LOG(LogTemp, Warning, TEXT("Jugadores restantes en la arena: %d"), GS->PlayersAlive);
 
-			if (GS->PlayersAlive <= 1)
+			if (GS->PlayersAlive == 1)
 			{
-				// --- NUEVA LÓGICA DE DETECCIÓN INFACOBLE ---
-				// Buscamos directamente en el mapa qué moto quedó en pie y con bIsDead en falso
-				for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+				// Queda 1 vivo. En lugar de darle la victoria ya, esperamos 0.05 segundos
+				// por si fue un choque simultáneo frontal.
+				if (!GetWorldTimerManager().IsTimerActive(PhotoFinishTimerHandle))
 				{
-					APlayerController* PC = It->Get();
-					if (PC && PC->GetPawn())
-					{
-						ADC_Pawn* TempPawn = Cast<ADC_Pawn>(PC->GetPawn());
-						
-						if (TempPawn && !TempPawn->bIsDead)
-						{
-							if (ADC_PlayerState* WinnerPS = PC->GetPlayerState<ADC_PlayerState>())
-							{
-								// 1. Guardamos la victoria
-								if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
-								{
-									GI->AddWin(WinnerPS->GetPlayerName());
-									WinnerPS->RoundsWon = GI->GetWins(WinnerPS->GetPlayerName());
-			
-									UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda! Victorias: %d"), *WinnerPS->GetPlayerName(), WinnerPS->RoundsWon);
-
-									// 2. ¿Alcanzó las 3 victorias?
-									if (WinnerPS->RoundsWon >= TargetWins)
-									{
-										bIsMatchOver = true; // ¡Se acabó el torneo!
-										UE_LOG(LogTemp, Warning, TEXT("¡%s ES EL CAMPEÓN DEL TORNEO!"), *WinnerPS->GetPlayerName());
-				
-										// Limpiamos la memoria para la próxima partida
-										GI->ResetTournament();
-									}
-								}
-							}
-
-							TempPawn->Multicast_OnWin(); 
-							break;
-						}
-					}
+					GetWorldTimerManager().SetTimer(PhotoFinishTimerHandle, this, &ADC_GameMode::EvaluateRoundWinner, 0.05f, false);
 				}
-				
-				EndRound();
+			}
+			else if (GS->PlayersAlive <= 0)
+			{
+				// Si llegó a 0 antes de que el timer termine, significa que ambos murieron
+				// en el mismo fotograma. No hacemos nada, dejamos que el timer actúe.
+				UE_LOG(LogTemp, Warning, TEXT("¡Muerte simultánea detectada en el mismo Tick!"));
 			}
 		}
 	}
@@ -266,3 +238,55 @@ AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
 	return Super::ChoosePlayerStart_Implementation(Player);
 }
 
+void ADC_GameMode::EvaluateRoundWinner()
+{
+	ADC_GameState* GS = GetGameState<ADC_GameState>();
+	if (!GS) return;
+
+	// Si después del Photo Finish sigue quedando 1 vivo, hay un ganador real
+	if (GS->PlayersAlive == 1)
+	{
+		for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+		{
+			APlayerController* PC = It->Get();
+			if (PC && PC->GetPawn())
+			{
+				ADC_Pawn* TempPawn = Cast<ADC_Pawn>(PC->GetPawn());
+						
+				if (TempPawn && !TempPawn->bIsDead)
+				{
+					if (ADC_PlayerState* WinnerPS = PC->GetPlayerState<ADC_PlayerState>())
+					{
+						if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
+						{
+							GI->AddWin(WinnerPS->GetPlayerName());
+							WinnerPS->RoundsWon = GI->GetWins(WinnerPS->GetPlayerName());
+			
+							UE_LOG(LogTemp, Warning, TEXT("¡El jugador %s gana la ronda! Victorias: %d"), *WinnerPS->GetPlayerName(), WinnerPS->RoundsWon);
+
+							if (WinnerPS->RoundsWon >= TargetWins)
+							{
+								bIsMatchOver = true; 
+								UE_LOG(LogTemp, Warning, TEXT("¡%s ES EL CAMPEÓN DEL TORNEO!"), *WinnerPS->GetPlayerName());
+								GI->ResetTournament();
+							}
+						}
+					}
+					TempPawn->Multicast_OnWin(); 
+					break;
+				}
+			}
+		}
+	}
+	// Si los jugadores vivos llegaron a 0, nadie gana.
+	else if (GS->PlayersAlive <= 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("¡EMPATE TÉCNICO! Nadie suma puntos esta ronda."));
+		
+		// Opcional: Podrías hacer un Multicast_Draw() a todos los pawns si querés 
+		// mostrar un cartel de "EMPATE" en la UI antes de reiniciar.
+	}
+
+	// Terminamos la ronda pase lo que pase
+	EndRound();
+}

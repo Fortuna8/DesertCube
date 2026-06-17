@@ -24,7 +24,9 @@ protected:
 	void OnOneSecondPassed();
 	void EndRound();
 	
-	
+	// --- LÓGICA DE EMPATES (PHOTO FINISH) ---
+	FTimerHandle PhotoFinishTimerHandle;
+	void EvaluateRoundWinner();
 	
 	// --- NUEVO: SISTEMA DE CALENTAMIENTO ---
 	FTimerHandle WarmupTimerHandle;
