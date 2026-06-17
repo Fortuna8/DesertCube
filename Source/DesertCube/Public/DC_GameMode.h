@@ -24,6 +24,8 @@ protected:
 	void OnOneSecondPassed();
 	void EndRound();
 	
+	
+	
 	// --- NUEVO: SISTEMA DE CALENTAMIENTO ---
 	FTimerHandle WarmupTimerHandle;
 	int32 WarmupTime = 3;
