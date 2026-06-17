@@ -18,13 +18,13 @@ public:
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	USceneComponent* RootScene;
+	TObjectPtr<USceneComponent> RootScene;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UStaticMeshComponent* MeshComponent;
+	TObjectPtr<UStaticMeshComponent> MeshComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UBoxComponent* CollisionBox; 
+	TObjectPtr<UBoxComponent> CollisionBox;
 
 public:	
 	// Replicamos las coordenadas para que la red nunca pierda la matemática
@@ -39,7 +39,7 @@ public:
 	bool bIsGrowing;
 
 	UPROPERTY(Replicated)
-	AActor* TargetPawn;
+	TObjectPtr<AActor> TargetPawn;
 
 	virtual void Tick(float DeltaTime) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

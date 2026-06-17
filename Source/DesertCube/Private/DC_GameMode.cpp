@@ -17,14 +17,17 @@ void ADC_GameMode::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (ADC_GameState* GS = GetGameState<ADC_GameState>())
+	ADC_GameState* GS = GetGameState<ADC_GameState>();
+	UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance());
+
+	if (GS && GI)
 	{
 		GS->bGlobalIsTrailFinite = true; 
 		GS->GlobalMaxTrailLength = 2000.f;
+
+		// EL SERVIDOR INYECTA LA RONDA EN EL GAME STATE PARA QUE LLEGUE A TODOS
+		GS->RondaActual = GI->RondaActual;
 	}
-	
-	// ELIMINAR O COMENTAR ESTO:
-	// GetWorldTimerManager().SetTimer(WarmupTimerHandle, this, &ADC_GameMode::OnWarmupTick, 1.0f, true);
 }
 
 void ADC_GameMode::OnPostLogin(AController* NewPlayer)
@@ -132,6 +135,8 @@ void ADC_GameMode::OnOneSecondPassed()
 
 void ADC_GameMode::PlayerDied(AController* VictimController)
 {
+	if (bRoundEnded) return;
+	
 	if (!VictimController) return;
 
 	ADC_PlayerState* VictimPS = VictimController->GetPlayerState<ADC_PlayerState>();
@@ -168,9 +173,13 @@ void ADC_GameMode::PlayerDied(AController* VictimController)
 
 void ADC_GameMode::EndRound()
 {
+	if (bRoundEnded) return; 
+	bRoundEnded = true;
+
 	GetWorldTimerManager().ClearTimer(RoundTimerHandle);
 	
-	// Por defecto esperamos 3 segundos (si es una ronda normal)
+	if (GetWorldTimerManager().IsTimerActive(MapTravelTimerHandle)) return;
+
 	float WaitTime = 3.0f;
 
 	// Si el torneo terminó, cambiamos las reglas de espera y avisamos a las interfaces
@@ -190,21 +199,28 @@ void ADC_GameMode::EndRound()
 		}
 	}
 
-	FTimerHandle UnusedHandle;
-	GetWorldTimerManager().SetTimer(UnusedHandle, [this]()
+	GetWorldTimerManager().SetTimer(MapTravelTimerHandle, [this]()
 	{
 		if (GetWorld())
 		{
 			if (bIsMatchOver)
 			{
+				if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
+				{
+					GI->ResetTournament();
+				}
 				GetWorld()->ServerTravel(TEXT("Lobby")); 
 			}
 			else
 			{
+				if (UDC_GameInstance* GI = Cast<UDC_GameInstance>(GetGameInstance()))
+				{
+					GI->RondaActual++;
+				}
 				GetWorld()->ServerTravel(TEXT("Basic")); 
 			}
 		}
-	}, WaitTime, false); // <--- Usamos la variable WaitTime
+	}, WaitTime, false);
 }
 
 AActor* ADC_GameMode::ChoosePlayerStart_Implementation(AController* Player)
@@ -289,4 +305,33 @@ void ADC_GameMode::EvaluateRoundWinner()
 
 	// Terminamos la ronda pase lo que pase
 	EndRound();
+}
+
+void ADC_GameMode::Logout(AController* Exiting)
+{
+	if (ADC_GameState* GS = GetGameState<ADC_GameState>())
+	{
+		if (ADC_PlayerState* PS = Exiting->GetPlayerState<ADC_PlayerState>())
+		{
+			// Si el jugador estaba corriendo en la arena, lo restamos del contador
+			if (PS->bIsAlive)
+			{
+				PS->bIsAlive = false;
+				GS->PlayersAlive = FMath::Max(0, GS->PlayersAlive - 1);
+				UE_LOG(LogTemp, Warning, TEXT("El jugador %s abandonó la partida. Jugadores restantes: %d"), *PS->GetPlayerName(), GS->PlayersAlive);
+
+				// Reutilizamos tu lógica del Photo Finish por si su abandono termina la ronda
+				if (GS->PlayersAlive <= 1)
+				{
+					if (!GetWorldTimerManager().IsTimerActive(PhotoFinishTimerHandle))
+					{
+						GetWorldTimerManager().SetTimer(PhotoFinishTimerHandle, this, &ADC_GameMode::EvaluateRoundWinner, 0.05f, false);
+					}
+				}
+			}
+		}
+	}
+
+	// Súper importante llamar al nativo para que Unreal libere la memoria de ese jugador
+	Super::Logout(Exiting); 
 }

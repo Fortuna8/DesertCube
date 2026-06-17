@@ -19,6 +19,8 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void OnPostLogin(AController* NewPlayer) override;
 	
+	virtual void Logout(AController* Exiting) override;
+	
 	// --- VARIABLES DE LA RONDA ---
 	FTimerHandle RoundTimerHandle;
 	void OnOneSecondPassed();
@@ -40,4 +42,8 @@ protected:
 	
 	bool bIsMatchOver = false;
 	int32 TargetWins = 3;
+	
+	FTimerHandle MapTravelTimerHandle;
+	
+	bool bRoundEnded = false;
 };

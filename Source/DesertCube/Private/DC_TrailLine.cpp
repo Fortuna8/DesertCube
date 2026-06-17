@@ -5,7 +5,7 @@
 
 ADC_TrailLine::ADC_TrailLine()
 {
-	PrimaryActorTick.bCanEverTick = true; 
+	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = true;
 	bAlwaysRelevant = true; 
 }
@@ -20,6 +20,8 @@ void ADC_TrailLine::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 void ADC_TrailLine::BeginPlay()
 {
 	Super::BeginPlay();
+	
+	GetWorldTimerManager().SetTimer(TrailUpdateTimer, this, &ADC_TrailLine::UpdateTrail, 0.03f, true);
 }
 
 void ADC_TrailLine::OnRep_InitialPoint()
@@ -33,10 +35,8 @@ void ADC_TrailLine::Multicast_AddTurnPoint_Implementation(FVector NewPoint)
 	TurnCorners.Add(NewPoint);
 }
 
-void ADC_TrailLine::Tick(float DeltaTime)
+void ADC_TrailLine::UpdateTrail()
 {
-	Super::Tick(DeltaTime);
-
 	if (!bIsInitialized || !TargetPawn || TurnCorners.Num() == 0) return;
 
 	TurnCorners.Add(TargetPawn->GetActorLocation()); // Cabeza viva

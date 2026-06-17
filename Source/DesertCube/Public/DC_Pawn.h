@@ -24,19 +24,19 @@ protected:
 	virtual void BeginPlay() override;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UBoxComponent* CollisionBox;
+	TObjectPtr<UBoxComponent> CollisionBox;
 	
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UStaticMeshComponent* MeshComponent;
+	TObjectPtr<UStaticMeshComponent> MeshComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
-	UNiagaraComponent* TrailNiagaraComponent;
+	TObjectPtr<UNiagaraComponent> TrailNiagaraComponent;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	UInputMappingContext* DefaultMappingContext;
+	TObjectPtr<UInputMappingContext> DefaultMappingContext;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
-	UInputAction* MoveAction;
+	TObjectPtr<UInputAction> MoveAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 	float MovementSpeed;
@@ -47,10 +47,10 @@ protected:
 	void Move(const FInputActionValue& Value);
 
 	UPROPERTY(EditDefaultsOnly, Category = "Trail")
-	TSubclassOf<ADC_TrailLine> TrailLineClass;
+	TSubclassOf<ADC_TrailLine> TrailLineClass; // TSubclassOf NO lleva TObjectPtr, se deja así.
 
 	UPROPERTY(Replicated)
-	ADC_TrailLine* MyTrailLine; 
+	TObjectPtr<ADC_TrailLine> MyTrailLine; 
 
 	void InitializeTrail();
 	

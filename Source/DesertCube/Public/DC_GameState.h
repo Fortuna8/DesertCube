@@ -24,6 +24,9 @@ public:
 	
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Game State")
 	int32 TimeRemaining;
+	
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Torneo")
+	int32 RondaActual = 1;
 
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

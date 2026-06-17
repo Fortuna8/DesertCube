@@ -19,4 +19,6 @@ void ADC_GameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	DOREPLIFETIME(ADC_GameState, bGlobalIsTrailFinite);
 	DOREPLIFETIME(ADC_GameState, GlobalMaxTrailLength);
 	DOREPLIFETIME(ADC_GameState, TimeRemaining);
+	DOREPLIFETIME(ADC_GameState, RondaActual);
+	
 }

@@ -19,7 +19,7 @@ protected:
 
 public:	
 	UPROPERTY(Replicated)
-	ADC_Pawn* TargetPawn;
+	TObjectPtr<ADC_Pawn> TargetPawn;
 
 	UPROPERTY(ReplicatedUsing = OnRep_InitialPoint)
 	FVector InitialPoint;
@@ -34,7 +34,6 @@ public:
 	TArray<FVector> TurnCorners;
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	virtual void Tick(float DeltaTime) override;
 
 	// El RPC Multicast para sincronizar curvas
 	UFUNCTION(NetMulticast, Reliable)
@@ -42,4 +41,10 @@ public:
 
 	// NUEVO: El Escáner Matemático de Colisión
 	bool CheckMathematicalCollision(FVector MoveStart, FVector MoveEnd, float BikeRadius, AActor* CheckingPawn);
+	
+	// Nueva función optimizada para reemplazar al Tick
+	void UpdateTrail();
+
+	// El controlador del temporizador
+	FTimerHandle TrailUpdateTimer;
 };

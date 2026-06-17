@@ -25,6 +25,5 @@ int32 UDC_GameInstance::GetWins(const FString& PlayerName)
 
 void UDC_GameInstance::ResetTournament()
 {
-	// Limpiamos la memoria para cuando alguien gane la partida definitiva
-	PlayerScores.Empty();
+		RondaActual = 1; // Reiniciamos el contador de rondas
 }

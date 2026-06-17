@@ -18,4 +18,7 @@ public:
 	void AddWin(const FString& PlayerName);
 	int32 GetWins(const FString& PlayerName);
 	void ResetTournament();
+	
+	UPROPERTY(BlueprintReadWrite, Category = "Torneo")
+	int32 RondaActual = 1;
 };
